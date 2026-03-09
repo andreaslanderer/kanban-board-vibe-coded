@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+
+# Stage 1: build frontend using Node
+FROM node:20 AS frontend-build
+WORKDIR /workspace/frontend
+COPY frontend/package*.json ./
+RUN npm install
+COPY frontend .
+RUN npm run build
+
+# Stage 2: build backend using Python
+FROM python:3.12-slim AS backend-build
+WORKDIR /workspace
+
+# copy project files
+COPY backend/pyproject.toml backend/requirements.txt ./
+# install python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# copy backend source
+COPY backend ./backend
+
+# copy built frontend assets for later serving
+COPY --from=frontend-build /workspace/frontend/.next ./frontend/.next
+COPY --from=frontend-build /workspace/frontend/public ./frontend/public
+
+EXPOSE 8000
+
+# run uvicorn application from package
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

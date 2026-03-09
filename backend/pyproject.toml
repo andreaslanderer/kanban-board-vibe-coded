@@ -1,0 +1,14 @@
+[project]
+name = "pm-backend"
+version = "0.1.0"
+description = "Backend for Project Management MVP"
+authors = ["placeholder <you@example.com>"]
+
+# using uv package manager
+[project.dependencies]
+fastapi = "*"
+uvicorn = {extras = ["standard"], version = "*"}
+sqlalchemy = "*"
+pydantic = "*"
+
+[tool.uv]

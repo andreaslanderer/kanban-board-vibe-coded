@@ -6,9 +6,9 @@
 
 ### Substeps
 
-- [ ] Document existing frontend code structure, components, data model, and architecture in `frontend/AGENTS.md`
-- [ ] Enrich this PLAN.md with detailed substeps, checklists, and success criteria for Parts 2-10
-- [ ] Get user review and approval of both documentation and plan
+- [x] Document existing frontend code structure, components, data model, and architecture in `frontend/AGENTS.md`
+- [x] Enrich this PLAN.md with detailed substeps, checklists, and success criteria for Parts 2-10
+- [x] Get user review and approval of both documentation and plan
 
 ### Tests & Success Criteria
 
@@ -23,15 +23,15 @@
 
 ### Substeps
 
-- [ ] Create Dockerfile with multi-stage build (Python for backend, Node for frontend build)
-- [ ] Set up Python project structure in `backend/` with FastAPI, SQLAlchemy, and uv package manager
-- [ ] Create `backend/AGENTS.md` documenting backend architecture and project structure
-- [ ] Add basic FastAPI app that serves static HTML at `/` with a simple hello world
-- [ ] Add a test API endpoint `/api/hello` that returns JSON: `{ "message": "Backend is working" }`
-- [ ] Create `.env` file template with OPENROUTER_API_KEY placeholder
-- [ ] Write shell scripts: `scripts/start.sh`, `scripts/stop.sh` for Mac (add Windows/Linux variants later)
-- [ ] Test locally: Build Docker image, run container, verify hello world page loads and API call works
-- [ ] Write basic backend unit test for the `/api/hello` endpoint
+- [x] Create Dockerfile with multi-stage build (Python for backend, Node for frontend build)
+- [x] Set up Python project structure in `backend/` with FastAPI, SQLAlchemy, and uv package manager
+- [x] Create `backend/AGENTS.md` documenting backend architecture and project structure
+- [x] Add basic FastAPI app that serves static HTML at `/` with a simple hello world
+- [x] Add a test API endpoint `/api/hello` that returns JSON: `{ "message": "Backend is working" }`
+- [x] Create `.env` file template with OPENROUTER_API_KEY placeholder
+- [x] Write shell scripts: `scripts/start.sh`, `scripts/stop.sh` for Mac (add Windows/Linux variants later)
+- [x] Test locally: Build Docker image, run container, verify hello world page loads and API call works
+- [x] Write basic backend unit test for the `/api/hello` endpoint
 
 ### Tests & Success Criteria
 
