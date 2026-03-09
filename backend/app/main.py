@@ -1,14 +1,16 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import os
 
 app = FastAPI()
-
-
-@app.get("/", response_class=HTMLResponse)
-def read_root():
-    return "<html><body><h1>Hello from backend!</h1></body></html>"
-
 
 @app.get("/api/hello")
 def api_hello():
     return {"message": "Backend is working"}
+
+# serve the statically exported frontend at the root (mounted after API routes)
+static_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../frontend/out")
+)
+app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")

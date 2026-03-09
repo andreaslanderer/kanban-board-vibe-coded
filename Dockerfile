@@ -20,8 +20,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # copy backend source
 COPY backend ./backend
 
-# copy built frontend assets for later serving
-COPY --from=frontend-build /workspace/frontend/.next ./frontend/.next
+# copy built frontend static export for later serving
+COPY --from=frontend-build /workspace/frontend/out ./frontend/out
 COPY --from=frontend-build /workspace/frontend/public ./frontend/public
 
 EXPOSE 8000

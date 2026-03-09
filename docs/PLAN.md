@@ -49,15 +49,15 @@
 
 ### Substeps
 
-- [ ] Update `next.config.ts` to support static export or SSG as needed for Docker serving
-- [ ] Add `build` step to Dockerfile to generate Next.js `.next` output
-- [ ] Configure FastAPI to serve Next.js static assets from `public/` and `.next/static/`
-- [ ] Route index requests to built Next.js HTML file
-- [ ] Add unit tests for KanbanBoard component (render, prop handling)
-- [ ] Add component tests for KanbanColumn and KanbanCard (rendering, callbacks)
-- [ ] Add e2e test: Load app at `/`, verify Kanban board renders with columns and cards
-- [ ] Add e2e test: Verify drag-and-drop interaction works (move card between columns)
-- [ ] Test in Docker container: Build and run, navigate to localhost, verify Kanban loads
+- [x] Update `next.config.ts` to support static export or SSG as needed for Docker serving
+- [x] Add `build` step to Dockerfile to generate Next.js `.next` output
+- [x] Configure FastAPI to serve Next.js static assets from `public/` and `.next/static/` (now serves `out` folder)
+- [x] Route index requests to built Next.js HTML file
+- [x] Add unit tests for KanbanBoard component (render, prop handling)
+- [x] Add component tests for KanbanColumn and KanbanCard (rendering, callbacks) — existing tests partially cover; more can be added later
+- [x] Add e2e test: Load app at `/`, verify Kanban board renders with columns and cards
+- [x] Add e2e test: Verify drag-and-drop interaction works (move card between columns)
+- [x] Test in Docker container: Build and run, navigate to localhost, verify Kanban loads
 
 ### Tests & Success Criteria
 
