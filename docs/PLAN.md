@@ -124,16 +124,16 @@
 
 ### Substeps
 
-- [ ] Create SQLAlchemy models for User, Board, Column, Card based on schema
-- [ ] Implement database initialization (create tables if not exist) on app startup
-- [ ] Add `/api/auth/login` endpoint (hardcoded user/"password", returns session token or cookie)
-- [ ] Add `/api/boards` endpoint: GET to fetch user's board with all columns and cards
-- [ ] Add `/api/boards/{boardId}/columns/{columnId}/cards` endpoint: POST to add new card
-- [ ] Add `/api/cards/{cardId}` endpoint: PATCH to update card (title, details), DELETE to remove
-- [ ] Add `/api/columns/{columnId}` endpoint: PATCH to rename column
-- [ ] Implement card move logic: PUT `/api/cards/{cardId}/move` with `{ columnId, position }`
-- [ ] Add database session middleware for request lifecycle management
-- [ ] Write backend unit tests for each endpoint (happy path + error cases)
+- [x] Create SQLAlchemy models for User, Board, Column, Card based on schema
+- [x] Implement database initialization (create tables if not exist) on app startup
+- [x] Add `/api/auth/login` endpoint (hardcoded user/"password", returns session token or cookie)
+- [x] Add `/api/boards` endpoint: GET to fetch user's board with all columns and cards
+- [x] Add `/api/boards/{boardId}/columns/{columnId}/cards` endpoint: POST to add new card
+- [x] Add `/api/cards/{cardId}` endpoint: PATCH to update card (title, details), DELETE to remove
+- [x] Add `/api/columns/{columnId}` endpoint: PATCH to rename column
+- [x] Implement card move logic: PUT `/api/cards/{cardId}/move` with `{ columnId, position }`
+- [x] Add database session middleware for request lifecycle management (via dependency injection)
+- [x] Write backend unit tests for each endpoint (happy path + error cases)
 - [ ] Test database creation and persistence on restart
 
 ### Tests & Success Criteria
