@@ -18,7 +18,7 @@ test("rejects invalid credentials", async ({ page }) => {
   await page.fill('input[name="username"]', "bad");
   await page.fill('input[name="password"]', "creds");
   await page.click('button[type="submit"]');
-  await expect(page.getByRole("alert")).toHaveText(/invalid/i);
+  await expect(page.getByRole("alert").first()).toHaveText(/invalid/i);
 });
 
 test("allows user to log in and then log out", async ({ page }) => {
@@ -40,7 +40,7 @@ test("adds a card to a column", async ({ page }) => {
   await firstColumn.getByPlaceholder("Card title").fill("Playwright card");
   await firstColumn.getByPlaceholder("Details").fill("Added via e2e.");
   await firstColumn.getByRole("button", { name: /add card/i }).click();
-  await expect(firstColumn.getByText("Playwright card")).toBeVisible();
+  await expect(firstColumn.getByText("Playwright card").first()).toBeVisible();
 });
 
 test("moves a card between columns", async ({ page }) => {
@@ -71,7 +71,7 @@ test("sends a message to AI and receives response", async ({ page }) => {
   await doLogin(page);
   
   // Find the chat input
-  const chatInput = page.getByPlaceholderText("Type a message...");
+  const chatInput = page.getByPlaceholder("Type a message...");
   const sendButton = page.getByRole("button", { name: /send/i });
   
   // Type a message

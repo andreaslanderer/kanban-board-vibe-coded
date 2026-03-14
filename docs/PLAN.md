@@ -154,17 +154,17 @@
 
 ### Substeps
 
-- [ ] Replace KanbanBoard state with API calls: fetch board on mount
-- [ ] Implement loading and error states during API calls
-- [ ] Update handleDragEnd to call move API endpoint
-- [ ] Update handleAddCard to call create card API endpoint
-- [ ] Update handleDeleteCard to call delete card API endpoint
-- [ ] Update handleRenameColumn to call rename column API endpoint
-- [ ] Add optimistic UI updates (show change immediately, revert if API fails)
-- [ ] Implement error handling and user-facing error messages
-- [ ] Add integration tests: Mock API, test user flows
-- [ ] Test in Docker: Full create/read/update/delete workflows end-to-end
-- [ ] Create a README.md under root describing how to start the whole stack
+- [x] Replace KanbanBoard state with API calls: fetch board on mount
+- [x] Implement loading and error states during API calls
+- [x] Update handleDragEnd to call move API endpoint
+- [x] Update handleAddCard to call create card API endpoint
+- [x] Update handleDeleteCard to call delete card API endpoint
+- [x] Update handleRenameColumn to call rename column API endpoint
+- [x] Add optimistic UI updates (show change immediately, revert if API fails)
+- [x] Implement error handling and user-facing error messages
+- [x] Add integration tests: Mock API, test user flows
+- [x] Test in Docker: Full create/read/update/delete workflows end-to-end
+- [x] Create a README.md under root describing how to start the whole stack
 
 ### Tests & Success Criteria
 

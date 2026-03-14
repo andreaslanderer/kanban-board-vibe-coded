@@ -6,6 +6,10 @@ import { ChatSidebar } from "@/components/ChatSidebar";
 const mockOnSend = vi.fn();
 
 describe("ChatSidebar", () => {
+  beforeEach(() => {
+    mockOnSend.mockClear();
+  });
+
   it("renders with empty messages", () => {
     render(<ChatSidebar messages={[]} onSend={mockOnSend} />);
     expect(screen.getByText("AI Assistant")).toBeInTheDocument();

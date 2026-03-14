@@ -15,4 +15,7 @@ dependencies = [
     "pytest-mock",
 ]
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.uv]

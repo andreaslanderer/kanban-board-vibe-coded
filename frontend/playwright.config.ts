@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000";
+
 export default defineConfig({
   testDir: "./tests",
   timeout: 60_000,
@@ -7,15 +9,20 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:3000",
+    baseURL,
     trace: "retain-on-failure",
   },
-  webServer: {
-    command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
-    url: "http://127.0.0.1:3000",
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  // Only start the dev server when not pointing at an external server (e.g. the FastAPI stack)
+  ...(process.env.PLAYWRIGHT_BASE_URL
+    ? {}
+    : {
+        webServer: {
+          command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
+          url: "http://127.0.0.1:3000",
+          reuseExistingServer: true,
+          timeout: 120_000,
+        },
+      }),
   projects: [
     {
       name: "chromium",
