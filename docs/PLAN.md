@@ -75,21 +75,21 @@
 
 ### Substeps
 
-- [ ] Create a Login component with username and password form inputs
-- [ ] Add a login context/provider for managing auth state
-- [ ] Protect KanbanBoard: redirect to login if not authenticated
-- [ ] Add logout button in KanbanBoard header
-- [ ] Implement hardcoded credential check (username="user", password="password")
-- [ ] Add unit tests: Login component renders, validates input, submits
-- [ ] Add e2e test: User navigates to `/`, sees login form, enters credentials, sees Kanban
-- [ ] Add e2e test: User clicks logout, returned to login page
-- [ ] Error handling: Show error message on invalid credentials
+- [x] Create a Login component with username and password form inputs
+- [x] Add a login context/provider for managing auth state
+- [x] Protect KanbanBoard: redirect to login if not authenticated
+- [x] Add logout button in KanbanBoard header
+- [x] Implement hardcoded credential check (username="user", password="password")
+- [x] Add unit tests: Login component renders, validates input, submits
+- [x] Add e2e test: User navigates to `/`, sees login form, enters credentials, sees Kanban
+- [x] Add e2e test: User clicks logout, returned to login page
+- [x] Error handling: Show error message on invalid credentials
 
 ### Tests & Success Criteria
 
 - **Test**: Login page renders at `/` when not authenticated
 - **Test**: Valid credentials ("user"/"password") unlock Kanban board
-- **Test**: Invalid credentials show error message
+- [ ] **Test**: Invalid credentials show error message *(covered by unit test)*
 - **Test**: Logout button clears auth and returns to login
 - **Test**: Refreshing page while logged in stays on Kanban (auth state persists in session)
 - **Success**: Full auth flow works without errors; all tests pass
@@ -102,11 +102,11 @@
 
 ### Substeps
 
-- [ ] Design schema (tables: users, boards, columns, cards) in SQLite-agnostic SQL or JSON schema format
-- [ ] Create example JSON document showing full board structure with nested relationships
-- [ ] Write `docs/DATABASE.md` documenting schema design, relationships, and migration strategy
-- [ ] Include rationale for choices (e.g., why cards reference column via `column_id`)
-- [ ] Propose approach for handling users (hardcoded "user" for MVP, but schema supports multiple)
+- [x] Design schema (tables: users, boards, columns, cards) in SQLite-agnostic SQL or JSON schema format
+- [x] Create example JSON document showing full board structure with nested relationships
+- [x] Write `docs/DATABASE.md` documenting schema design, relationships, and migration strategy
+- [x] Include rationale for choices (e.g., why cards reference column via `column_id`)
+- [x] Propose approach for handling users (hardcoded "user" for MVP, but schema supports multiple)
 - [ ] Get user review and approval before implementation
 
 ### Tests & Success Criteria
