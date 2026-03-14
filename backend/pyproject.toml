@@ -2,7 +2,7 @@
 name = "pm-backend"
 version = "0.1.0"
 description = "Backend for Project Management MVP"
-authors = ["placeholder <you@example.com>"]
+authors = [{ name = "placeholder", email = "you@example.com" }]
 
 # using uv package manager
 dependencies = [

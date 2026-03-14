@@ -201,20 +201,22 @@
 
 ---
 
+
 ## Part 9: AI Integration with Kanban Context & Structured Outputs
 
 **Goal**: Backend calls AI with full Kanban context and conversation history; AI returns structured response with optional board updates.
 
+
 ### Substeps
 
-- [ ] Design structured output schema: `{ "response": string, "boardUpdates": { "cards": [...], "columns": [...] } }`
-- [ ] Create `/api/ai/chat` endpoint that accepts `{ question: string, conversationHistory: [] }`
-- [ ] Include current board JSON in the prompt sent to AI
-- [ ] Call OpenRouter with instructions to respond in structured format
-- [ ] Parse structured response; extract text response and optional board updates
-- [ ] Implement conversation history storage (in-memory for MVP, can be persisted later)
-- [ ] Add backend unit tests: Mock API, verify structured output parsing, test with board updates
-- [ ] Manual test: Chat with AI, ask it to create/modify cards, verify returned structure
+- [x] Design structured output schema: `{ "response": string, "boardUpdates": { "cards": [...], "columns": [...] } }`
+- [x] Create `/api/ai/chat` endpoint that accepts `{ question: string, conversationHistory: [] }`
+- [x] Include current board JSON in the prompt sent to AI
+- [x] Call OpenRouter with instructions to respond in structured format
+- [x] Parse structured response; extract text response and optional board updates
+- [x] Implement conversation history storage (in-memory for MVP, can be persisted later)
+- [x] Add backend unit tests: Mock API, verify structured output parsing, test with board updates
+- [x] Manual test: Chat with AI, ask it to create/modify cards, verify returned structure
 
 ### Tests & Success Criteria
 

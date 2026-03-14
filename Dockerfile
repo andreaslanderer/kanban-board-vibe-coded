@@ -12,10 +12,11 @@ RUN npm run build
 FROM python:3.12-slim AS backend-build
 WORKDIR /workspace
 
+
 # copy project files
-COPY backend/pyproject.toml backend/requirements.txt ./
-# install python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/pyproject.toml ./
+# install python dependencies using uv
+RUN uv sync --no-editable
 
 # copy backend source
 COPY backend ./backend

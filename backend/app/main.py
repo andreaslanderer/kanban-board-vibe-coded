@@ -1,17 +1,89 @@
 import os
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, Body
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from . import crud, models, schemas
+from .ai_schemas import AIChatRequest, AIChatResponse
+from .deps import get_db
+import json
+
+# In-memory conversation history for MVP (user_id -> list of messages)
+conversation_histories = {}
+
+# FastAPI app instance
+app = FastAPI()
+
+@app.post("/api/ai/chat", response_model=AIChatResponse)
+def api_ai_chat(
+    payload: AIChatRequest = Body(...),
+    db: Session = Depends(get_db),
+):
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="OpenRouter API key not configured")
+
+    # For MVP, always use the single hardcoded user
+    user = crud.get_user_by_username(db, "user")
+    if not user:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User not found")
+    board = crud.get_board_for_user(db, user.id)
+    if not board:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
+
+    # Conversation history (in-memory, per user)
+    history = conversation_histories.setdefault(user.id, [])
+    # Add the new user message
+    history.append({"role": "user", "content": payload.question})
+
+    # Prepare prompt for AI
+    board_json = schemas.BoardOut.model_validate(board).model_dump()
+    prompt = f"""
+You are an AI assistant for a Kanban project management app. The user will ask questions or give instructions about their board. Always respond in this JSON format:
+{{
+  \"response\": <string, your answer to the user>,
+  \"boardUpdates\": <object, optional, with updated cards/columns if you want to make changes>
+}}
+
+Here is the current board JSON:
+{json.dumps(board_json)}
+
+Conversation history:
+{json.dumps(history)}
+
+User message:
+{payload.question}
+"""
+
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        ai_content = response.choices[0].message.content
+        # Try to parse as JSON
+        try:
+            parsed = json.loads(ai_content)
+            # Add AI response to history
+            history.append({"role": "assistant", "content": parsed.get("response", ai_content)})
+            return AIChatResponse(**parsed)
+        except Exception:
+            # fallback: return raw text
+            history.append({"role": "assistant", "content": ai_content})
+            return AIChatResponse(response=ai_content)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI call failed: {str(e)}")
 from .database import SessionLocal, engine
 from .deps import get_db
 
-app = FastAPI()
 
 
 @app.on_event("startup")

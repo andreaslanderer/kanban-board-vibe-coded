@@ -12,7 +12,6 @@ The backend is a Python FastAPI application responsible for:
 ```
 backend/
   pyproject.toml         # Python project metadata and dependencies (uv package manager)
-  requirements.txt       # Fallback dependencies list
   app/
     __init__.py
     main.py              # FastAPI application entrypoint
@@ -23,16 +22,33 @@ backend/
     test_main.py         # Basic tests for hello endpoints
 ```
 
-## Dependencies
 
-- **FastAPI** for web framework
-- **Uvicorn** as ASGI server
-- **SQLAlchemy** for ORM/database access (yet to be implemented)
-- **Pydantic** for data validation
+## Dependency Management
 
-## Launching
+All Python dependencies are managed with the [uv](https://github.com/astral-sh/uv) package manager. Do not use pip or requirements.txt.
 
-During development the app can be started with `uv run backend.app.main:app --reload`.
-In Docker, a multi-stage build will ensure the frontend is built and then the backend runs with the compiled static assets copied into the image.
+### Installing dependencies
+
+```bash
+cd backend
+uv sync --no-editable
+```
+
+### Adding a new dependency
+
+```bash
+cd backend
+uv pip install <package-name>
+```
+
+This will update `pyproject.toml` automatically.
+
+### Running the backend
+
+```bash
+uv run backend.app.main:app --reload
+```
+
+In Docker, the build will use uv to install dependencies and then run the backend with the compiled static assets copied into the image.
 
 The `/` route currently returns a simple HTML string; `/api/hello` returns a JSON health-check.

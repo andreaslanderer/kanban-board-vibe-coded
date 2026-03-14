@@ -37,10 +37,11 @@ A Kanban board application with AI integration, built as a full-stack MVP.
 ### Local Development
 
 #### Backend
+
 ```bash
 cd backend
-pip install -r requirements.txt
-python -m uvicorn app.main:app --reload
+uv sync --no-editable
+uv run -m uvicorn backend.app.main:app --reload
 ```
 
 #### Frontend
