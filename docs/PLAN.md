@@ -236,19 +236,19 @@
 
 ### Substeps
 
-- [ ] Create ChatSidebar component with message list and input form
-- [ ] Implement chat message state: user messages and AI responses
-- [ ] Wire ChatSidebar to call `/api/ai/chat` with user's message
-- [ ] Display AI response text in message list
-- [ ] Parse structured output from API response
-- [ ] If boardUpdates present, apply changes to KanbanBoard state
-- [ ] Trigger UI refresh when board updates (cards added/moved/removed)
-- [ ] Add loading state while AI responds
-- [ ] Add error handling and display error messages
-- [ ] Implement visual feedback (e.g., highlight cards that were just updated by AI)
-- [ ] Add unit tests for ChatSidebar component
-- [ ] Add e2e test: User types message, AI responds, board updates automatically
-- [ ] Style sidebar to match color scheme and layout
+- [x] Create ChatSidebar component with message list and input form
+- [x] Implement chat message state: user messages and AI responses
+- [x] Wire ChatSidebar to call `/api/ai/chat` with user's message
+- [x] Display AI response text in message list
+- [x] Parse structured output from API response
+- [x] If boardUpdates present, apply changes to KanbanBoard state
+- [x] Trigger UI refresh when board updates (cards added/moved/removed)
+- [x] Add loading state while AI responds
+- [x] Add error handling and display error messages
+- [x] Implement visual feedback (e.g., highlight cards that were just updated by AI)
+- [x] Add unit tests for ChatSidebar component
+- [x] Add e2e test: User types message, AI responds, board updates automatically
+- [x] Style sidebar to match color scheme and layout
 
 ### Tests & Success Criteria
 

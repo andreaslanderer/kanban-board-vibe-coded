@@ -24,6 +24,13 @@ export interface ApiBoard {
   columns: ApiColumn[];
 }
 
+export type AIChatMessage = { role: "user" | "assistant"; content: string };
+
+export type AIChatResponse = {
+  response: string;
+  boardUpdates?: { cards?: Card[]; columns?: Column[] };
+};
+
 export interface ApiLoginResponse {
   success: boolean;
   user?: { id: number; username: string };
@@ -133,4 +140,10 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ columnId: parseInt(columnId), position }),
     }).then(apiCardToCard),
+
+  chat: (question: string, conversationHistory: AIChatMessage[]): Promise<AIChatResponse> =>
+    apiRequest<AIChatResponse>("/ai/chat", {
+      method: "POST",
+      body: JSON.stringify({ question, conversationHistory }),
+    }),
 };

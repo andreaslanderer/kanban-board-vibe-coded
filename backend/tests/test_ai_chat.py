@@ -2,8 +2,10 @@ import json
 from fastapi.testclient import TestClient
 from app.main import app, conversation_histories
 
-def test_ai_chat_structured(monkeypatch):
-    client = TestClient(app)
+def test_ai_chat_structured(test_client, monkeypatch):
+    # Set up environment
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
+    
     # Patch OpenAI client to return a fixed structured response
     class DummyChoices:
         def __init__(self, content):
@@ -26,7 +28,7 @@ def test_ai_chat_structured(monkeypatch):
         "question": "Add a new card to Backlog",
         "conversationHistory": []
     }
-    response = client.post("/api/ai/chat", json=payload)
+    response = test_client.post("/api/ai/chat", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["response"] == "Here is your answer."
@@ -36,8 +38,10 @@ def test_ai_chat_structured(monkeypatch):
     assert conversation_histories[user_id][-1]["role"] == "assistant"
     assert conversation_histories[user_id][-1]["content"] == "Here is your answer."
 
-def test_ai_chat_fallback(monkeypatch):
-    client = TestClient(app)
+def test_ai_chat_fallback(test_client, monkeypatch):
+    # Set up environment
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
+    
     # Patch OpenAI client to return a non-JSON response
     class DummyChoices:
         def __init__(self, content):
@@ -57,7 +61,7 @@ def test_ai_chat_fallback(monkeypatch):
         "question": "What is the status?",
         "conversationHistory": []
     }
-    response = client.post("/api/ai/chat", json=payload)
+    response = test_client.post("/api/ai/chat", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["response"] == "Just a plain text answer."

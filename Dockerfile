@@ -12,6 +12,8 @@ RUN npm run build
 FROM python:3.12-slim AS backend-build
 WORKDIR /workspace
 
+# Install uv
+RUN pip install uv
 
 # copy project files
 COPY backend/pyproject.toml ./
@@ -31,4 +33,4 @@ COPY .env .env
 EXPOSE 8000
 
 # run uvicorn application from package
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

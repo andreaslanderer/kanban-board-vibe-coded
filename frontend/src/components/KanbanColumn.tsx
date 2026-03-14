@@ -8,6 +8,7 @@ import { NewCardForm } from "@/components/NewCardForm";
 type KanbanColumnProps = {
   column: Column;
   cards: Card[];
+  highlightedCardIds?: string[];
   onRename: (columnId: string, title: string) => void;
   onAddCard: (columnId: string, title: string, details: string) => void;
   onDeleteCard: (columnId: string, cardId: string) => void;
@@ -16,6 +17,7 @@ type KanbanColumnProps = {
 export const KanbanColumn = ({
   column,
   cards,
+  highlightedCardIds = [],
   onRename,
   onAddCard,
   onDeleteCard,
@@ -55,6 +57,7 @@ export const KanbanColumn = ({
             <KanbanCard
               key={card.id}
               card={card}
+              highlighted={highlightedCardIds.includes(card.id)}
               onDelete={(cardId) => onDeleteCard(column.id, cardId)}
             />
           ))}

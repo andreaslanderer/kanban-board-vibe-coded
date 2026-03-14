@@ -66,3 +66,20 @@ test("moves a card between columns", async ({ page }) => {
   await page.mouse.up();
   await expect(targetColumn.getByTestId("card-1")).toBeVisible();
 });
+
+test("sends a message to AI and receives response", async ({ page }) => {
+  await doLogin(page);
+  
+  // Find the chat input
+  const chatInput = page.getByPlaceholderText("Type a message...");
+  const sendButton = page.getByRole("button", { name: /send/i });
+  
+  // Type a message
+  await chatInput.fill("Add a new card to Backlog");
+  await sendButton.click();
+  
+  // Wait for user message to appear
+  await expect(page.getByText("Add a new card to Backlog")).toBeVisible();
+  // Note: In a real test, we'd mock the AI API response
+  // For now, this tests the UI interaction
+});

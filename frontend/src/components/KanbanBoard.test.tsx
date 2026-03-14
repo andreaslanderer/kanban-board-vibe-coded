@@ -10,7 +10,7 @@ import { api } from "@/lib/api";
 vi.mock("@/lib/api", () => ({
   api: {
     fetchBoard: vi.fn(() => Promise.resolve({ boardData: initialData, boardId: "1" })),
-    createCard: vi.fn(() => Promise.resolve({ id: "card-test", title: "Test", details: "" })),
+    createCard: vi.fn((boardId, columnId, title, description) => Promise.resolve({ id: "card-test", title: title || "Test", details: description || "" })),
     deleteCard: vi.fn(() => Promise.resolve()),
     renameColumn: vi.fn(() => Promise.resolve({ id: "col-backlog", title: "New Name", cardIds: [] })),
     moveCard: vi.fn(() => Promise.resolve({ id: "card-1", title: "Test", details: "" })),

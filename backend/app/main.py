@@ -42,12 +42,46 @@ def api_ai_chat(
 
     # Prepare prompt for AI
     board_json = schemas.BoardOut.model_validate(board).model_dump()
+    
+    # Create a column mapping for the AI
+    column_mapping = {col["title"]: col["id"] for col in board_json["columns"]}
+    
     prompt = f"""
-You are an AI assistant for a Kanban project management app. The user will ask questions or give instructions about their board. Always respond in this JSON format:
+You are an AI assistant for a Kanban project management app. The user will ask questions or give instructions about their board.
+
+COLUMN MAPPING (use these IDs when creating cards):
+{json.dumps(column_mapping, indent=2)}
+
+Always respond in this exact JSON format:
 {{
-  \"response\": <string, your answer to the user>,
-  \"boardUpdates\": <object, optional, with updated cards/columns if you want to make changes>
+  "response": "<string, your friendly answer to the user>",
+  "boardUpdates": {{
+    "cards": [
+      {{
+        "id": <existing_card_id>,  // For updating/moving/deleting existing cards
+        "title": "<card_title>",   // Optional for updates
+        "description": "<card_description>", // Optional for updates
+        "columnId": <column_id_number>,  // For creating new cards or moving existing ones
+        "delete": true  // Set to true to delete the card with the given id
+      }}
+    ],
+    "columns": [
+      {{
+        "id": <existing_column_id>,
+        "title": "<new_column_title>"
+      }}
+    ]
+  }}
 }}
+
+IMPORTANT RULES:
+- For creating NEW cards: include "title", "description", and "columnId" (numeric ID from mapping)
+- For updating EXISTING cards: include "id" (numeric). Include "title" and/or "description" if changing them. Include "columnId" if moving to a different column.
+- For DELETING cards: include "id" (numeric) and set "delete": true
+- For creating NEW columns: include only "title"
+- For updating EXISTING columns: include "id" (numeric) and "title"
+- If no board changes are needed, set "boardUpdates" to null or omit it entirely
+- Always provide a friendly response
 
 Here is the current board JSON:
 {json.dumps(board_json)}

@@ -14,7 +14,8 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { api, type BoardData } from "@/lib/api";
+import { ChatSidebar } from "@/components/ChatSidebar";
+import { api, type BoardData, type AIChatMessage, type AIChatResponse } from "@/lib/api";
 import { createId, moveCard } from "@/lib/kanban";
 
 export const KanbanBoard = () => {
@@ -23,6 +24,14 @@ export const KanbanBoard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<AIChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [highlightedCardIds, setHighlightedCardIds] = useState<string[]>([]);
+
+  const { logout } = useAuth();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -42,6 +51,8 @@ export const KanbanBoard = () => {
   }, []);
 
   const cardsById = useMemo(() => board?.cards || {}, [board?.cards]);
+
+  const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
@@ -168,9 +179,152 @@ export const KanbanBoard = () => {
     }
   };
 
-  const activeCard = activeCardId ? cardsById[activeCardId] : null;
+  const handleSendMessage = async (message: string) => {
+    if (!board || !boardId) return;
 
-  const { logout } = useAuth();
+    setChatLoading(true);
+    setChatError(null);
+
+    // Add user message to chat
+    const userMessage: AIChatMessage = { role: "user", content: message };
+    setChatMessages(prev => [...prev, userMessage]);
+
+    try {
+      const response: AIChatResponse = await api.chat(message, chatMessages);
+
+      // Add AI response to chat
+      const aiMessage: AIChatMessage = { role: "assistant", content: response.response };
+      setChatMessages(prev => [...prev, aiMessage]);
+
+      // Apply board updates if present
+      if (response.boardUpdates) {
+        await applyBoardUpdates(response.boardUpdates);
+      }
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "Failed to send message");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const applyBoardUpdates = async (updates: { cards?: any[]; columns?: any[] }) => {
+    if (!board || !boardId) return;
+
+    const newHighlightedIds: string[] = [];
+
+    // Apply card updates
+    if (updates.cards) {
+      for (const cardUpdate of updates.cards) {
+        try {
+          const cardId = cardUpdate.id?.toString(); // Convert to string for frontend state
+          
+          if (cardId) {
+            if (cardUpdate.delete) {
+              // Delete existing card
+              await api.deleteCard(cardId);
+              setBoard(prev => {
+                if (!prev) return prev;
+                const { [cardId]: deletedCard, ...remainingCards } = prev.cards;
+                const columnWithCard = prev.columns.find(col => col.cardIds.includes(cardId));
+                
+                return {
+                  cards: remainingCards,
+                  columns: prev.columns.map(col =>
+                    col.id === columnWithCard?.id
+                      ? { ...col, cardIds: col.cardIds.filter(id => id !== cardId) }
+                      : col
+                  )
+                };
+              });
+            } else if (cardUpdate.columnId !== undefined) {
+              // Move card to different column
+              const movedCard = await api.moveCard(cardId, cardUpdate.columnId.toString(), 0); // position 0 = end of column
+              setBoard(prev => {
+                if (!prev) return prev;
+                // Remove card from old column and add to new column
+                const oldColumn = prev.columns.find(col => col.cardIds.includes(cardId));
+                const newColumn = prev.columns.find(col => col.id === cardUpdate.columnId.toString());
+                if (!oldColumn || !newColumn) return prev;
+
+                return {
+                  cards: { ...prev.cards, [movedCard.id]: movedCard },
+                  columns: prev.columns.map(col => {
+                    if (col.id === oldColumn.id) {
+                      return { ...col, cardIds: col.cardIds.filter(id => id !== cardId) };
+                    } else if (col.id === newColumn.id) {
+                      return { ...col, cardIds: [...col.cardIds, movedCard.id] };
+                    }
+                    return col;
+                  })
+                };
+              });
+              newHighlightedIds.push(movedCard.id);
+            } else {
+              // Update card title/description only
+              const updatedCard = await api.updateCard(cardId, cardUpdate.title, cardUpdate.description);
+              setBoard(prev => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  cards: { ...prev.cards, [updatedCard.id]: updatedCard }
+                };
+              });
+              newHighlightedIds.push(updatedCard.id);
+            }
+          } else if (cardUpdate.title && cardUpdate.columnId) {
+            // Create new card
+            const newCard = await api.createCard(boardId, cardUpdate.columnId, cardUpdate.title, cardUpdate.description);
+            setBoard(prev => {
+              if (!prev) return prev;
+              const targetColumnId = cardUpdate.columnId.toString();
+              const targetColumn = prev.columns.find(col => col.id === targetColumnId);
+              if (!targetColumn) return prev;
+
+              return {
+                cards: { ...prev.cards, [newCard.id]: newCard },
+                columns: prev.columns.map(col =>
+                  col.id === targetColumnId
+                    ? { ...col, cardIds: [...col.cardIds, newCard.id] }
+                    : col
+                )
+              };
+            });
+            newHighlightedIds.push(newCard.id);
+          }
+        } catch (err) {
+          console.error("Failed to apply card update:", err);
+        }
+      }
+    }
+
+    // Apply column updates
+    if (updates.columns) {
+      for (const columnUpdate of updates.columns) {
+        try {
+          if (columnUpdate.id && columnUpdate.title) {
+            await api.renameColumn(columnUpdate.id, columnUpdate.title);
+            setBoard(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                columns: prev.columns.map(col =>
+                  col.id === columnUpdate.id ? { ...col, title: columnUpdate.title } : col
+                )
+              };
+            });
+          }
+        } catch (err) {
+          console.error("Failed to apply column update:", err);
+        }
+      }
+    }
+
+    // Highlight updated cards briefly
+    if (newHighlightedIds.length > 0) {
+      setHighlightedCardIds(newHighlightedIds);
+      setTimeout(() => setHighlightedCardIds([]), 3000);
+    }
+  };
 
   if (loading) {
     return (
@@ -246,32 +400,44 @@ export const KanbanBoard = () => {
           </div>
         </header>
 
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <section className="grid gap-6 lg:grid-cols-5">
-            {board.columns.map((column) => (
-              <KanbanColumn
-                key={column.id}
-                column={column}
-                cards={column.cardIds.map((cardId) => board.cards[cardId])}
-                onRename={handleRenameColumn}
-                onAddCard={handleAddCard}
-                onDeleteCard={handleDeleteCard}
-              />
-            ))}
-          </section>
-          <DragOverlay>
-            {activeCard ? (
-              <div className="w-[260px]">
-                <KanbanCardPreview card={activeCard} />
-              </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+        <div className="flex gap-6">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCorners}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <section className="grid flex-1 gap-6 lg:grid-cols-5">
+              {board.columns.map((column) => (
+                <KanbanColumn
+                  key={column.id}
+                  column={column}
+                  cards={column.cardIds.map((cardId) => board.cards[cardId])}
+                  highlightedCardIds={highlightedCardIds}
+                  onRename={handleRenameColumn}
+                  onAddCard={handleAddCard}
+                  onDeleteCard={handleDeleteCard}
+                />
+              ))}
+            </section>
+            <DragOverlay>
+              {activeCard ? (
+                <div className="w-[260px]">
+                  <KanbanCardPreview card={activeCard} />
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+
+          <aside className="w-80 flex-shrink-0">
+            <ChatSidebar
+              messages={chatMessages}
+              onSend={handleSendMessage}
+              loading={chatLoading}
+              error={chatError}
+            />
+          </aside>
+        </div>
       </main>
     </div>
   );
