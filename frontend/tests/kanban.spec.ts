@@ -1,13 +1,40 @@
 import { expect, test } from "@playwright/test";
 
-test("loads the kanban board", async ({ page }) => {
+async function doLogin(page) {
   await page.goto("/");
+  await page.fill('input[name="username"]', "user");
+  await page.fill('input[name="password"]', "password");
+  await page.click('button[type="submit"]');
   await expect(page.getByRole("heading", { name: "Kanban Studio" })).toBeVisible();
+}
+
+test("shows login form when not authenticated", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+});
+
+test("rejects invalid credentials", async ({ page }) => {
+  await page.goto("/");
+  await page.fill('input[name="username"]', "bad");
+  await page.fill('input[name="password"]', "creds");
+  await page.click('button[type="submit"]');
+  await expect(page.getByRole("alert")).toHaveText(/invalid/i);
+});
+
+test("allows user to log in and then log out", async ({ page }) => {
+  await doLogin(page);
+  // logout button should be visible
+  await page.click('button:has-text("Log out")');
+  await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+});
+
+test("loads the kanban board after login", async ({ page }) => {
+  await doLogin(page);
   await expect(page.locator('[data-testid^="column-"]')).toHaveCount(5);
 });
 
 test("adds a card to a column", async ({ page }) => {
-  await page.goto("/");
+  await doLogin(page);
   const firstColumn = page.locator('[data-testid^="column-"]').first();
   await firstColumn.getByRole("button", { name: /add a card/i }).click();
   await firstColumn.getByPlaceholder("Card title").fill("Playwright card");
@@ -17,7 +44,7 @@ test("adds a card to a column", async ({ page }) => {
 });
 
 test("moves a card between columns", async ({ page }) => {
-  await page.goto("/");
+  await doLogin(page);
   const card = page.getByTestId("card-card-1");
   const targetColumn = page.getByTestId("column-col-review");
   const cardBox = await card.boundingBox();
