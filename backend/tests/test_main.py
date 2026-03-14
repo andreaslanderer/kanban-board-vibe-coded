@@ -1,3 +1,6 @@
+import os
+
+
 def test_read_root_serves_static(test_client):
     response = test_client.get("/")
     assert response.status_code == 200
@@ -82,3 +85,27 @@ def test_update_and_delete_card(test_client):
     # delete the card
     delete_resp = test_client.delete(f"/api/cards/{card['id']}")
     assert delete_resp.status_code == 204
+
+
+def test_ai_test_success(test_client, mocker):
+    # Mock the OpenAI client
+    mock_client = mocker.Mock()
+    mock_response = mocker.Mock()
+    mock_choice = mocker.Mock()
+    mock_choice.message.content = "4"
+    mock_response.choices = [mock_choice]
+    mock_client.chat.completions.create.return_value = mock_response
+
+    mocker.patch("app.main.OpenAI", return_value=mock_client)
+    mocker.patch.dict(os.environ, {"OPENROUTER_API_KEY": "test_key"})
+
+    response = test_client.get("/api/ai/test")
+    assert response.status_code == 200
+    assert response.json() == {"response": "4"}
+
+
+def test_ai_test_no_api_key(test_client, mocker):
+    mocker.patch.dict(os.environ, {}, clear=True)  # No API key
+    response = test_client.get("/api/ai/test")
+    assert response.status_code == 500
+    assert "API key not configured" in response.json()["detail"]

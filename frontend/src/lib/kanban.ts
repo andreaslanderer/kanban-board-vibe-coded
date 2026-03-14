@@ -71,13 +71,19 @@ export const initialData: BoardData = {
   },
 };
 
-const isColumnId = (columns: Column[], id: string) =>
-  columns.some((column) => column.id === id);
+const isColumnId = (columns: Column[], id: string) => {
+  if (id.startsWith("column-")) {
+    const columnId = id.slice(7);
+    return columns.some((column) => column.id === columnId);
+  }
+  return false;
+};
 
 const findColumnId = (columns: Column[], id: string) => {
-  if (isColumnId(columns, id)) {
-    return id;
+  if (id.startsWith("column-")) {
+    return id.slice(7);
   }
+  // id is a card id, find the column containing it
   return columns.find((column) => column.cardIds.includes(id))?.id;
 };
 
@@ -117,10 +123,6 @@ export const moveCard = (
 
     const oldIndex = activeColumn.cardIds.indexOf(activeId);
     const newIndex = activeColumn.cardIds.indexOf(overId);
-
-    if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) {
-      return columns;
-    }
 
     const nextCardIds = [...activeColumn.cardIds];
     nextCardIds.splice(oldIndex, 1);

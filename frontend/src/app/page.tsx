@@ -1,3 +1,5 @@
+"use client";
+
 import { KanbanBoard } from "@/components/KanbanBoard";
 
 import { useAuth } from "@/lib/auth";

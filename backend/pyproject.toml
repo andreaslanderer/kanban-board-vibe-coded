@@ -5,10 +5,14 @@ description = "Backend for Project Management MVP"
 authors = ["placeholder <you@example.com>"]
 
 # using uv package manager
-[project.dependencies]
-fastapi = "*"
-uvicorn = {extras = ["standard"], version = "*"}
-sqlalchemy = "*"
-pydantic = "*"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "pydantic",
+    "openai",
+    "pytest",
+    "pytest-mock",
+]
 
 [tool.uv]

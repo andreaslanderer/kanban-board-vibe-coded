@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from . import crud, models, schemas
@@ -88,6 +89,26 @@ def api_move_card(card_id: int, payload: schemas.CardMove, db: Session = Depends
     if not card:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card or column not found")
     return card
+
+
+@app.get("/api/ai/test")
+def api_ai_test():
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="OpenRouter API key not configured")
+
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[{"role": "user", "content": "What is 2+2?"}]
+        )
+        return {"response": response.choices[0].message.content}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI call failed: {str(e)}")
 
 
 # serve the statically exported frontend at the root (mounted after API routes)

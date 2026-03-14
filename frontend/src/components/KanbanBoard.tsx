@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   DndContext,
@@ -14,10 +14,14 @@ import {
 } from "@dnd-kit/core";
 import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
-import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
+import { api, type BoardData } from "@/lib/api";
+import { createId, moveCard } from "@/lib/kanban";
 
 export const KanbanBoard = () => {
-  const [board, setBoard] = useState<BoardData>(() => initialData);
+  const [board, setBoard] = useState<BoardData | null>(null);
+  const [boardId, setBoardId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
 
   const sensors = useSensors(
@@ -26,73 +30,171 @@ export const KanbanBoard = () => {
     })
   );
 
-  const cardsById = useMemo(() => board.cards, [board.cards]);
+  useEffect(() => {
+    api
+      .fetchBoard()
+      .then(({ boardData, boardId }) => {
+        setBoard(boardData);
+        setBoardId(boardId);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const cardsById = useMemo(() => board?.cards || {}, [board?.cards]);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveCardId(event.active.id as string);
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveCardId(null);
 
-    if (!over || active.id === over.id) {
+    if (!over || active.id === over.id || !board || !boardId) {
       return;
     }
 
-    setBoard((prev) => ({
-      ...prev,
-      columns: moveCard(prev.columns, active.id as string, over.id as string),
-    }));
+
+    const activeId = active.id as string;
+    let overId = over.id as string;
+
+    // If over is a column, ensure it has the 'column-' prefix
+    const isOverColumn = board.columns.some(col => `column-${col.id}` === overId);
+    if (isOverColumn) {
+      // Remove 'column-' prefix for moveCard logic, which expects just the column id
+      overId = overId;
+    }
+
+    // Optimistic update
+    const optimisticColumns = moveCard(board.columns, activeId, overId);
+    setBoard({ ...board, columns: optimisticColumns });
+
+    try {
+      // Find the new column and position
+      const newColumn = optimisticColumns.find(col => col.cardIds.includes(activeId));
+      if (!newColumn) return;
+      const position = newColumn.cardIds.indexOf(activeId);
+
+      await api.moveCard(activeId, newColumn.id, position);
+    } catch (err) {
+      // Revert on error
+      setBoard(board); // revert to previous
+      setError("Failed to move card");
+    }
   };
 
-  const handleRenameColumn = (columnId: string, title: string) => {
-    setBoard((prev) => ({
-      ...prev,
-      columns: prev.columns.map((column) =>
-        column.id === columnId ? { ...column, title } : column
-      ),
-    }));
+  const handleRenameColumn = async (columnId: string, title: string) => {
+    if (!board) return;
+
+    // Optimistic update
+    const optimisticColumns = board.columns.map((column) =>
+      column.id === columnId ? { ...column, title } : column
+    );
+    setBoard({ ...board, columns: optimisticColumns });
+
+    try {
+      await api.renameColumn(columnId, title);
+    } catch (err) {
+      // Revert
+      setBoard(board);
+      setError("Failed to rename column");
+    }
   };
 
-  const handleAddCard = (columnId: string, title: string, details: string) => {
-    const id = createId("card");
-    setBoard((prev) => ({
-      ...prev,
-      cards: {
-        ...prev.cards,
-        [id]: { id, title, details: details || "No details yet." },
-      },
-      columns: prev.columns.map((column) =>
-        column.id === columnId
-          ? { ...column, cardIds: [...column.cardIds, id] }
-          : column
-      ),
-    }));
-  };
+  const handleAddCard = async (columnId: string, title: string, details: string) => {
+    if (!board || !boardId) return;
 
-  const handleDeleteCard = (columnId: string, cardId: string) => {
-    setBoard((prev) => {
-      return {
-        ...prev,
-        cards: Object.fromEntries(
-          Object.entries(prev.cards).filter(([id]) => id !== cardId)
-        ),
-        columns: prev.columns.map((column) =>
-          column.id === columnId
+    const tempId = createId("card");
+    const newCard = { id: tempId, title, details: details || "No details yet." };
+
+    // Optimistic update
+    const optimisticCards = { ...board.cards, [tempId]: newCard };
+    const optimisticColumns = board.columns.map((column) =>
+      column.id === columnId
+        ? { ...column, cardIds: [...column.cardIds, tempId] }
+        : column
+    );
+    setBoard({ cards: optimisticCards, columns: optimisticColumns });
+
+    try {
+      const realCard = await api.createCard(boardId, columnId, title, details);
+      // Patch in the real card ID everywhere
+      setBoard((prev) => {
+        if (!prev) return prev;
+        // Remove temp card, add real card
+        const { [tempId]: _, ...restCards } = prev.cards;
+        const newCards = { ...restCards, [realCard.id]: realCard };
+        const newColumns = prev.columns.map((col) =>
+          col.id === columnId
             ? {
-                ...column,
-                cardIds: column.cardIds.filter((id) => id !== cardId),
+                ...col,
+                cardIds: col.cardIds.map((cid) => (cid === tempId ? realCard.id : cid)),
               }
-            : column
-        ),
-      };
-    });
+            : col
+        );
+        return { cards: newCards, columns: newColumns };
+      });
+    } catch (err) {
+      // Revert
+      setBoard(board);
+      setError("Failed to add card");
+    }
+  };
+
+  const handleDeleteCard = async (columnId: string, cardId: string) => {
+    if (!board) return;
+
+    // Optimistic update
+    const optimisticCards = Object.fromEntries(
+      Object.entries(board.cards).filter(([id]) => id !== cardId)
+    );
+    const optimisticColumns = board.columns.map((column) =>
+      column.id === columnId
+        ? {
+            ...column,
+            cardIds: column.cardIds.filter((id) => id !== cardId),
+          }
+        : column
+    );
+    setBoard({ cards: optimisticCards, columns: optimisticColumns });
+
+    try {
+      await api.deleteCard(cardId);
+    } catch (err) {
+      // Revert
+      setBoard(board);
+      setError("Failed to delete card");
+    }
   };
 
   const activeCard = activeCardId ? cardsById[activeCardId] : null;
 
   const { logout } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p>Loading board...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-red-500">Error: {error}</p>
+      </div>
+    );
+  }
+
+  if (!board) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p>No board data</p>
+      </div>
+    );
+  }
 
   return (
     <div className="relative overflow-hidden">

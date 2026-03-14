@@ -164,6 +164,7 @@
 - [ ] Implement error handling and user-facing error messages
 - [ ] Add integration tests: Mock API, test user flows
 - [ ] Test in Docker: Full create/read/update/delete workflows end-to-end
+- [ ] Create a README.md under root describing how to start the whole stack
 
 ### Tests & Success Criteria
 
@@ -182,13 +183,13 @@
 
 ### Substeps
 
-- [ ] Load OPENROUTER_API_KEY from environment in backend
-- [ ] Create a simple test endpoint `/api/ai/test` that calls OpenRouter with prompt "What is 2+2?"
-- [ ] Use `openai/gpt-4` client library (via openai Python package) pointing to OpenRouter
-- [ ] Parse and return AI response
-- [ ] Add error handling for missing API key or API failures
-- [ ] Write backend unit test: Mock OpenRouter response, verify endpoint returns expected result
-- [ ] Manual test: Set API key in `.env`, call endpoint, verify correct response ("4" or similar)
+- [x] Load OPENROUTER_API_KEY from environment in backend
+- [x] Create a simple test endpoint `/api/ai/test` that calls OpenRouter with prompt "What is 2+2?"
+- [x] Use `openai/gpt-oss-120b` client library (via openai Python package) pointing to OpenRouter
+- [x] Parse and return AI response
+- [x] Add error handling for missing API key or API failures
+- [x] Write backend unit test: Mock OpenRouter response, verify endpoint returns expected result
+- [x] Manual test: Set API key in `.env`, call endpoint, verify correct response ("4" or similar)
 
 ### Tests & Success Criteria
 

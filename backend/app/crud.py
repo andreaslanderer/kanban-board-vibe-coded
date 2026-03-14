@@ -190,11 +190,28 @@ def seed_default_data(db: Session) -> None:
     if not board:
         board = create_board(db, user.id, "My Project")
 
-    # Ensure default columns exist
+    # Ensure default columns exist (5 columns)
     existing_columns = {c.title: c for c in board.columns}
-    default_columns = ["To Do", "In Progress", "Done"]
+    default_columns = [
+        "Backlog",
+        "Discovery",
+        "In Progress",
+        "Review",
+        "Done",
+    ]
+    columns = []
     for idx, title in enumerate(default_columns):
         if title not in existing_columns:
-            create_column(db, board.id, title, position=idx)
+            col = create_column(db, board.id, title, position=idx)
+            columns.append(col)
+        else:
+            columns.append(existing_columns[title])
+
+    # Ensure some initial cards exist in the first column
+    if columns:
+        first_col = columns[0]
+        if not first_col.cards:  # only add if no cards
+            create_card(db, first_col.id, "Align roadmap themes", "Draft quarterly themes with impact statements and metrics.")
+            create_card(db, first_col.id, "Gather customer signals", "Review support tags, sales notes, and churn feedback.")
 
     db.commit()  # ensure new columns are persisted

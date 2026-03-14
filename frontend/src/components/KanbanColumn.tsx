@@ -20,7 +20,9 @@ export const KanbanColumn = ({
   onAddCard,
   onDeleteCard,
 }: KanbanColumnProps) => {
-  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  // Always use 'column-' prefix for droppable id
+  const droppableId = `column-${column.id}`;
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
 
   return (
     <section
