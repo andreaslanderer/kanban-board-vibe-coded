@@ -17,9 +17,6 @@ from .auth import create_access_token
 from .database import SessionLocal, engine
 from .deps import get_current_user, get_db
 
-# In-memory conversation history (user_id -> list of messages). MVP only — lost on restart.
-conversation_histories: dict = {}
-
 app = FastAPI()
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -274,8 +271,8 @@ def api_ai_chat(
     if not board:
         raise HTTPException(status_code=404, detail="Board not found")
 
-    history = conversation_histories.setdefault(current_user.id, [])
-    history.append({"role": "user", "content": payload.question})
+    history = crud.get_conversation_history(db, current_user.id)
+    crud.append_message(db, current_user.id, "user", payload.question)
 
     board_json = schemas.BoardOut.model_validate(board).model_dump()
     column_mapping = {col["title"]: col["id"] for col in board_json["columns"]}
@@ -336,13 +333,31 @@ User message:
         ai_content = response.choices[0].message.content
         try:
             parsed = json.loads(ai_content)
-            history.append({"role": "assistant", "content": parsed.get("response", ai_content)})
+            assistant_text = parsed.get("response", ai_content)
+            crud.append_message(db, current_user.id, "assistant", assistant_text)
             return AIChatResponse(**parsed)
         except Exception:
-            history.append({"role": "assistant", "content": ai_content})
+            crud.append_message(db, current_user.id, "assistant", ai_content)
             return AIChatResponse(response=ai_content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI call failed: {str(e)}")
+
+
+@app.get("/api/ai/history")
+def api_get_history(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    messages = crud.get_conversation_history(db, current_user.id)
+    return {"messages": messages}
+
+
+@app.delete("/api/ai/history", status_code=status.HTTP_204_NO_CONTENT)
+def api_clear_history(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    crud.clear_conversation_history(db, current_user.id)
 
 
 @app.get("/api/ai/test")

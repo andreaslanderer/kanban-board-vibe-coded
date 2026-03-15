@@ -1,7 +1,5 @@
 import json
 
-from app.main import conversation_histories
-
 
 def _dummy_openai(response_content: str):
     """Return a DummyOpenAI class whose completions return response_content."""
@@ -71,20 +69,55 @@ def test_ai_chat_no_api_key(auth_client, monkeypatch):
 
 
 def test_ai_chat_conversation_history_grows(auth_client, monkeypatch):
-    """Each exchange appends both user and assistant messages to the history."""
+    """Each exchange appends both user and assistant messages; GET /api/ai/history reflects this."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
     monkeypatch.setattr(
         "app.main.OpenAI",
         _dummy_openai(json.dumps({"response": "Got it.", "boardUpdates": None})),
     )
 
-    conversation_histories.clear()
+    # Clear any existing history for this user first
+    auth_client.delete("/api/ai/history")
 
     auth_client.post("/api/ai/chat", json={"question": "First message"})
     auth_client.post("/api/ai/chat", json={"question": "Second message"})
 
-    assert len(conversation_histories) > 0
-    history = next(iter(conversation_histories.values()))
-    assert len(history) >= 4  # 2 user + 2 assistant turns
-    roles = [m["role"] for m in history[-4:]]
+    history_resp = auth_client.get("/api/ai/history")
+    assert history_resp.status_code == 200
+    messages = history_resp.json()["messages"]
+    assert len(messages) >= 4  # 2 user + 2 assistant turns
+    roles = [m["role"] for m in messages[-4:]]
     assert roles == ["user", "assistant", "user", "assistant"]
+
+
+def test_ai_history_clear(auth_client, monkeypatch):
+    """DELETE /api/ai/history removes all messages for the current user."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
+    monkeypatch.setattr(
+        "app.main.OpenAI",
+        _dummy_openai(json.dumps({"response": "OK", "boardUpdates": None})),
+    )
+
+    auth_client.post("/api/ai/chat", json={"question": "Seed a message"})
+
+    # Confirm there is at least one message
+    history_before = auth_client.get("/api/ai/history").json()["messages"]
+    assert len(history_before) >= 1
+
+    # Clear
+    clear_resp = auth_client.delete("/api/ai/history")
+    assert clear_resp.status_code == 204
+
+    # Confirm empty
+    history_after = auth_client.get("/api/ai/history").json()["messages"]
+    assert history_after == []
+
+
+def test_ai_history_requires_auth(monkeypatch):
+    """GET and DELETE /api/ai/history return 401 without a session."""
+    from app.main import app
+    from fastapi.testclient import TestClient
+
+    with TestClient(app, cookies={}) as fresh_client:
+        assert fresh_client.get("/api/ai/history").status_code == 401
+        assert fresh_client.delete("/api/ai/history").status_code == 401

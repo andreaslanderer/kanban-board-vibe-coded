@@ -41,16 +41,16 @@ Passwords are eliminated entirely. The `User` model no longer has `username` or 
 
 All endpoints now use `Depends(get_current_user)`, which extracts the authenticated user from the JWT cookie and enforces per-user data isolation. Each user's board, cards, and conversation history are scoped to their own `user.id`.
 
-### CR-06: In-memory conversation history — PARTIALLY FIXED (OAuth implementation)
-**File:** `backend/app/main.py` line 21
+### ~~CR-06: In-memory conversation history~~ — FIXED
+**File:** `backend/app/main.py`, `backend/app/models.py`, `backend/app/crud.py`
 
-```python
-conversation_histories: dict = {}
-```
+The in-memory `conversation_histories` dict has been removed entirely. History is now persisted in the `conversation_messages` table (columns: `id`, `user_id`, `role`, `content`, `created_at`), keyed by `user_id` with a cascade-delete on the user record.
 
-**Partially fixed:** per-user isolation is now correct — history is keyed by `current_user.id` rather than a hardcoded value, so users no longer share each other's history.
+New endpoints:
+- `GET /api/ai/history` — returns `{"messages": [...]}` for the authenticated user; used by the frontend to restore history on page load.
+- `DELETE /api/ai/history` — clears all messages for the authenticated user (204).
 
-**Remaining issues:** history is still lost on restart, grows unbounded with no cap or TTL, and is not persisted to the database. Store it in the DB with a reasonable cap for production use.
+The frontend loads history via `api.getChatHistory()` on board mount so conversations survive page refreshes. A "Clear history" button appears in the AI Assistant sidebar header when there are messages, calling `api.clearChatHistory()`.
 
 ### CR-07: AI response parsed without schema validation
 **File:** `backend/app/main.py` — AI chat endpoint
@@ -178,14 +178,13 @@ The README still says the AI chat feature is planned. It is fully implemented. U
 | Severity | Total | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 4 (incl. 1 false positive) | 4 | 0 |
-| High     | 7 | 3 | 4 (CR-06 partially fixed) |
+| High     | 7 | 4 | 3 |
 | Medium   | 7 | 0 | 7 |
 | Low/Test | 7 | 3 | 4 |
-| **Total** | **25** | **10** | **15** |
+| **Total** | **25** | **11** | **14** |
 
 ### Remaining actions (before production use)
-1. Persist conversation history to DB with a cap/TTL (CR-06)
-2. Validate AI response structure before using it (CR-07)
-3. Enable SQLite foreign key enforcement (CR-11)
-4. Clear `setTimeout` on unmount in `KanbanBoard` (CR-14)
-5. Add React Error Boundary around `KanbanBoard` (CR-16)
+1. Validate AI response structure before using it (CR-07)
+2. Enable SQLite foreign key enforcement (CR-11)
+3. Clear `setTimeout` on unmount in `KanbanBoard` (CR-14)
+4. Add React Error Boundary around `KanbanBoard` (CR-16)

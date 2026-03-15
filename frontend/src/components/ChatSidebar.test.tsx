@@ -68,4 +68,31 @@ describe("ChatSidebar", () => {
     render(<ChatSidebar messages={[]} onSend={mockOnSend} error="Test error" />);
     expect(screen.getByText("Test error")).toBeInTheDocument();
   });
+
+  it("shows Chat label when onClearHistory is not provided", () => {
+    render(<ChatSidebar messages={[]} onSend={mockOnSend} />);
+    expect(screen.getByText("Chat")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /clear history/i })).not.toBeInTheDocument();
+  });
+
+  it("does not show Clear history button when there are no messages", () => {
+    const mockClear = vi.fn();
+    render(<ChatSidebar messages={[]} onSend={mockOnSend} onClearHistory={mockClear} />);
+    expect(screen.queryByRole("button", { name: /clear history/i })).not.toBeInTheDocument();
+  });
+
+  it("shows Clear history button when messages exist and onClearHistory is provided", () => {
+    const mockClear = vi.fn();
+    const messages = [{ role: "user" as const, content: "Hello" }];
+    render(<ChatSidebar messages={messages} onSend={mockOnSend} onClearHistory={mockClear} />);
+    expect(screen.getByRole("button", { name: /clear history/i })).toBeInTheDocument();
+  });
+
+  it("calls onClearHistory when Clear history button is clicked", async () => {
+    const mockClear = vi.fn();
+    const messages = [{ role: "user" as const, content: "Hello" }];
+    render(<ChatSidebar messages={messages} onSend={mockOnSend} onClearHistory={mockClear} />);
+    await userEvent.click(screen.getByRole("button", { name: /clear history/i }));
+    expect(mockClear).toHaveBeenCalledTimes(1);
+  });
 });

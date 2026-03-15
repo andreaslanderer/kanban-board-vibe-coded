@@ -5,11 +5,12 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 type ChatSidebarProps = {
   messages: ChatMessage[];
   onSend: (message: string) => Promise<void>;
+  onClearHistory?: () => void;
   loading?: boolean;
   error?: string | null;
 };
 
-export const ChatSidebar = ({ messages, onSend, loading, error }: ChatSidebarProps) => {
+export const ChatSidebar = ({ messages, onSend, onClearHistory, loading, error }: ChatSidebarProps) => {
   const [draft, setDraft] = useState("");
 
   const canSend = draft.trim().length > 0 && !loading;
@@ -40,7 +41,17 @@ export const ChatSidebar = ({ messages, onSend, loading, error }: ChatSidebarPro
     <aside className="flex h-[720px] w-full flex-col rounded-3xl border border-[var(--stroke)] bg-[var(--surface-strong)] p-4 shadow-[var(--shadow)]">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-[var(--navy-dark)]">AI Assistant</h2>
-        <span className="text-xs text-[var(--gray-text)]">Chat</span>
+        {onClearHistory && messages.length > 0 ? (
+          <button
+            type="button"
+            onClick={onClearHistory}
+            className="text-xs text-[var(--gray-text)] hover:text-red-500"
+          >
+            Clear history
+          </button>
+        ) : (
+          <span className="text-xs text-[var(--gray-text)]">Chat</span>
+        )}
       </div>
 
       {error ? (

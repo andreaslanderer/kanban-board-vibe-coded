@@ -115,6 +115,12 @@ export const api = {
   logout: (): Promise<void> =>
     apiRequest('/auth/logout', { method: 'POST' }).then(() => undefined),
 
+  getChatHistory: (): Promise<AIChatMessage[]> =>
+    apiRequest<{ messages: AIChatMessage[] }>('/ai/history').then(r => r.messages),
+
+  clearChatHistory: (): Promise<void> =>
+    apiRequest('/ai/history', { method: 'DELETE' }).then(() => undefined),
+
   fetchBoard: (): Promise<{ boardData: BoardData; boardId: string }> =>
     apiRequest<ApiBoard>('/boards').then(apiBoard => ({
       boardData: apiBoardToBoardData(apiBoard),

@@ -40,11 +40,11 @@ export const KanbanBoard = () => {
   );
 
   useEffect(() => {
-    api
-      .fetchBoard()
-      .then(({ boardData, boardId }) => {
+    Promise.all([api.fetchBoard(), api.getChatHistory()])
+      .then(([{ boardData, boardId }, history]) => {
         setBoard(boardData);
         setBoardId(boardId);
+        setChatMessages(history);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -177,6 +177,11 @@ export const KanbanBoard = () => {
       setBoard(board);
       setError("Failed to delete card");
     }
+  };
+
+  const handleClearHistory = async () => {
+    await api.clearChatHistory();
+    setChatMessages([]);
   };
 
   const handleSendMessage = async (message: string) => {
@@ -433,6 +438,7 @@ export const KanbanBoard = () => {
             <ChatSidebar
               messages={chatMessages}
               onSend={handleSendMessage}
+              onClearHistory={handleClearHistory}
               loading={chatLoading}
               error={chatError}
             />

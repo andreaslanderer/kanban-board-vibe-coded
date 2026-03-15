@@ -13,6 +13,8 @@ vi.mock("@/lib/api", () => ({
       Promise.resolve({ id: 1, email: "test@example.com", display_name: "Test", avatar_url: null })
     ),
     logout: vi.fn(() => Promise.resolve()),
+    getChatHistory: vi.fn(() => Promise.resolve([])),
+    clearChatHistory: vi.fn(() => Promise.resolve()),
     fetchBoard: vi.fn(() => Promise.resolve({ boardData: initialData, boardId: "1" })),
     createCard: vi.fn((boardId, columnId, title, description) => Promise.resolve({ id: "card-test", title: title || "Test", details: description || "" })),
     deleteCard: vi.fn(() => Promise.resolve()),

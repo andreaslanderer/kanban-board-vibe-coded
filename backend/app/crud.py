@@ -211,6 +211,32 @@ def move_card(
     return card
 
 
+# --- Conversation history ---
+
+def get_conversation_history(db: Session, user_id: int) -> list[dict]:
+    messages = (
+        db.query(models.ConversationMessage)
+        .filter(models.ConversationMessage.user_id == user_id)
+        .order_by(models.ConversationMessage.created_at)
+        .all()
+    )
+    return [{"role": msg.role, "content": msg.content} for msg in messages]
+
+
+def append_message(db: Session, user_id: int, role: str, content: str) -> models.ConversationMessage:
+    msg = models.ConversationMessage(user_id=user_id, role=role, content=content)
+    db.add(msg)
+    db.commit()
+    return msg
+
+
+def clear_conversation_history(db: Session, user_id: int) -> None:
+    db.query(models.ConversationMessage).filter(
+        models.ConversationMessage.user_id == user_id
+    ).delete()
+    db.commit()
+
+
 def seed_default_data(db: Session) -> None:
     """No-op: schema is created via create_all; users/boards are created on first OAuth login."""
     pass
