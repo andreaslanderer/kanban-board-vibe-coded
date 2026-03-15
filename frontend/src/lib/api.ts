@@ -24,18 +24,19 @@ export interface ApiBoard {
   columns: ApiColumn[];
 }
 
+export interface ApiUser {
+  id: number;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
+
 export type AIChatMessage = { role: "user" | "assistant"; content: string };
 
 export type AIChatResponse = {
   response: string;
   boardUpdates?: { cards?: Card[]; columns?: Column[] };
 };
-
-export interface ApiLoginResponse {
-  success: boolean;
-  user?: { id: number; username: string };
-  message?: string;
-}
 
 // Frontend types (from kanban.ts)
 
@@ -102,11 +103,17 @@ async function apiRequest<T>(endpoint: string, options?: RequestInit): Promise<T
 }
 
 export const api = {
-  login: (username: string, password: string): Promise<ApiLoginResponse> =>
-    apiRequest('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password }),
-    }),
+  getMe: async (): Promise<ApiUser | null> => {
+    const response = await fetch(`${API_BASE}/auth/me`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (response.status === 401) return null;
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    return response.json();
+  },
+
+  logout: (): Promise<void> =>
+    apiRequest('/auth/logout', { method: 'POST' }).then(() => undefined),
 
   fetchBoard: (): Promise<{ boardData: BoardData; boardId: string }> =>
     apiRequest<ApiBoard>('/boards').then(apiBoard => ({

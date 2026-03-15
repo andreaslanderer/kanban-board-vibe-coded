@@ -6,9 +6,13 @@ import { AuthProvider } from "@/lib/auth";
 import { initialData } from "@/lib/kanban";
 import { api } from "@/lib/api";
 
-// Mock the API
+// Mock the API (includes auth methods so AuthProvider resolves immediately)
 vi.mock("@/lib/api", () => ({
   api: {
+    getMe: vi.fn(() =>
+      Promise.resolve({ id: 1, email: "test@example.com", display_name: "Test", avatar_url: null })
+    ),
+    logout: vi.fn(() => Promise.resolve()),
     fetchBoard: vi.fn(() => Promise.resolve({ boardData: initialData, boardId: "1" })),
     createCard: vi.fn((boardId, columnId, title, description) => Promise.resolve({ id: "card-test", title: title || "Test", details: description || "" })),
     deleteCard: vi.fn(() => Promise.resolve()),
@@ -17,9 +21,7 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
-// helper that ensures user is logged in before rendering
 function renderWithAuth(ui: React.ReactElement) {
-  sessionStorage.setItem("user", "user");
   return render(<AuthProvider>{ui}</AuthProvider>);
 }
 

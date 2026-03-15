@@ -16,45 +16,41 @@ Comprehensive review of the PM Kanban MVP codebase. Issues are grouped by severi
 
 Removed `COPY .env .env`. The `scripts/start.sh` already passes `--env-file .env` to `docker run`, so secrets are injected at runtime and never baked into image layers. Verified: `docker exec` confirms `.env` is absent from the container filesystem, and all endpoints (health, login, board, AI) respond correctly.
 
-### CR-03: Authentication is entirely client-side
+### ~~CR-03: Authentication is entirely client-side~~ — FIXED (OAuth implementation)
 **File:** `frontend/src/lib/auth.tsx`
 
-Login is a local string comparison with no backend validation:
-```typescript
-if (username === "user" && password === "password") { ... }
-```
-The `/api/auth/login` endpoint exists but is never called by the frontend. There are no session tokens, JWTs, or cookies. Any user can bypass login by setting `sessionStorage["user"] = "user"` in the browser console. All API endpoints are completely unprotected.
+~~Login is a local string comparison with no backend validation. Any user can bypass login by setting `sessionStorage["user"] = "user"` in the browser console. All API endpoints are completely unprotected.~~
 
-### CR-04: Password stored in plain text
+Replaced with Google OAuth 2.0 (Authorization Code flow). The backend issues a signed JWT stored as an `HttpOnly; SameSite=Lax` cookie (`access_token`, 24h expiry). All board, card, column, and AI endpoints now depend on `get_current_user`, which decodes and validates the JWT on every request. The frontend calls `GET /api/auth/me` on mount to restore the session — there is no longer any client-side credential check or `sessionStorage` usage.
+
+### ~~CR-04: Password stored in plain text~~ — FIXED (OAuth implementation)
 **File:** `backend/app/crud.py` `seed_default_data()`
 
-```python
-user = create_user(db, "user", "password")
-```
-The `create_user` function stores the password as-is with no hashing. Passwords must be hashed with bcrypt or similar before storage.
+~~The `create_user` function stores the password as-is with no hashing.~~
+
+Passwords are eliminated entirely. The `User` model no longer has `username` or `password_hash` columns; identity is established via Google OAuth (`google_id`, `email`). No password is ever stored.
 
 ---
 
 ## High
 
-### CR-05: All endpoints hardcoded to a single user
-**Files:** `backend/app/main.py` (lines around `get_user_by_username(db, "user")`)
+### ~~CR-05: All endpoints hardcoded to a single user~~ — FIXED (OAuth implementation)
+**Files:** `backend/app/main.py`
 
-Every endpoint resolves the active user by hardcoding `"user"`:
-```python
-user = crud.get_user_by_username(db, "user")
-```
-The database schema supports multiple users, but no user is extracted from the request. Multiple users would all read/write the same board.
+~~Every endpoint resolves the active user by hardcoding `crud.get_user_by_username(db, "user")`. Multiple users would all read/write the same board.~~
 
-**Action:** Extract user identity from a session token or auth header and validate it on every request.
+All endpoints now use `Depends(get_current_user)`, which extracts the authenticated user from the JWT cookie and enforces per-user data isolation. Each user's board, cards, and conversation history are scoped to their own `user.id`.
 
-### CR-06: In-memory conversation history
-**File:** `backend/app/main.py` line 16
+### CR-06: In-memory conversation history — PARTIALLY FIXED (OAuth implementation)
+**File:** `backend/app/main.py` line 21
 
 ```python
-conversation_histories = {}
+conversation_histories: dict = {}
 ```
-Conversation history is lost on restart, grows unbounded, and has no per-user isolation (though moot given CR-05). Store it in the database with a reasonable cap or TTL.
+
+**Partially fixed:** per-user isolation is now correct — history is keyed by `current_user.id` rather than a hardcoded value, so users no longer share each other's history.
+
+**Remaining issues:** history is still lost on restart, grows unbounded with no cap or TTL, and is not persisted to the database. Store it in the DB with a reasonable cap for production use.
 
 ### CR-07: AI response parsed without schema validation
 **File:** `backend/app/main.py` — AI chat endpoint
@@ -71,10 +67,12 @@ The AI response is `json.loads()`-ed and passed directly to `AIChatResponse(**pa
 
 AI-driven board mutations call multiple API endpoints sequentially with no rollback if one fails mid-way. A partial failure leaves the board in an inconsistent state. Wrap these in a transaction or revert to the pre-update snapshot on any failure.
 
-### CR-10: Duplicate and unused imports in main.py
+### ~~CR-10: Duplicate and unused imports in main.py~~ — FIXED (OAuth implementation)
 **File:** `backend/app/main.py`
 
-`from .database import SessionLocal, engine` and `from .deps import get_db` appear twice. `SessionLocal` and `engine` are only used in the startup event handler and could be imported there instead. Remove the duplicates.
+~~`from .database import SessionLocal, engine` and `from .deps import get_db` appeared twice.~~
+
+Resolved as a side effect of the full `main.py` rewrite for the OAuth implementation. All imports are now clean and non-duplicated.
 
 ---
 
@@ -96,7 +94,7 @@ def set_sqlite_pragma(dbapi_conn, _):
 ```
 
 ### CR-12: Redundant Python-level sort in `get_board_for_user`
-**File:** `backend/app/crud.py` lines 25–28
+**File:** `backend/app/crud.py`
 
 Columns and cards are sorted in Python after the query, but the SQLAlchemy relationships already define `order_by=position`. The Python sort is redundant — remove it.
 
@@ -139,20 +137,17 @@ The API key is only checked on the first AI request, producing a generic 500. Va
 ### CR-18: `vi` not imported in `KanbanCard.test.tsx`
 **File:** `frontend/src/components/KanbanCard.test.tsx`
 
-`vi.fn()` is used on line 20 but `vi` is never imported from `vitest`. This would cause a `ReferenceError` at runtime if the test file ever exercised that path. Add `import { vi } from "vitest"`.
+`vi.fn()` is used on line 20 but `vi` is never imported from `vitest`. Works at runtime because `globals: true` is set in `vitest.config.ts`, but is technically incorrect — adding `import { vi } from "vitest"` makes the intent explicit and removes reliance on the global.
 
-### CR-19: Vitest setup file reference points to non-existent file
+### ~~CR-19: Vitest setup file reference points to non-existent file~~ — RESOLVED
 **File:** `frontend/vitest.config.ts`
 
-```typescript
-setupFiles: ["./src/test/setup.ts"],
-```
-`src/test/setup.ts` does not exist. Either create it (even if empty) or remove the reference.
+`src/test/setup.ts` exists with `import "@testing-library/jest-dom"`. No action needed.
 
-### CR-20: Missing test: API key absent from AI chat endpoint
+### ~~CR-20: Missing test: API key absent from AI chat endpoint~~ — FIXED (OAuth implementation)
 **File:** `backend/tests/test_ai_chat.py`
 
-`test_main.py` has `test_ai_test_no_api_key` for `/api/ai/test`, but the equivalent case is missing for `/api/ai/chat`.
+`test_ai_chat_no_api_key` was added as part of the OAuth test suite expansion. It verifies that `POST /api/ai/chat` returns 500 with an "API key" detail when `OPENROUTER_API_KEY` is unset.
 
 ### CR-21: Missing tests: optimistic update revert behaviour
 **File:** `frontend/src/components/KanbanBoard.test.tsx`
@@ -164,13 +159,12 @@ setupFiles: ["./src/test/setup.ts"],
 
 `apiCardToCard`, `apiColumnToColumn`, and `apiBoardToBoardData` have no unit tests. These are the boundary between backend and frontend types; bugs here affect the entire app silently.
 
-### CR-23: Brittle `user_id == 1` assertion in AI tests
-**File:** `backend/tests/test_ai_chat.py` lines 38, 72
+### ~~CR-23: Brittle `user_id == 1` assertion in AI tests~~ — FIXED (OAuth implementation)
+**File:** `backend/tests/test_ai_chat.py`
 
-```python
-assert conversation_histories[user_id][-1]["role"] == "assistant"
-```
-`user_id` is hardcoded to `1`. This test will break if seeding order changes or tests run in isolation. Derive the user ID from the seeded data instead.
+~~`user_id` was hardcoded to `1` in history assertions.~~
+
+Replaced with `next(iter(conversation_histories.values()))`, which retrieves the first history entry regardless of the assigned user ID.
 
 ### CR-24: README describes AI chat as "planned"
 **File:** `README.md`
@@ -181,16 +175,17 @@ The README still says the AI chat feature is planned. It is fully implemented. U
 
 ## Summary
 
-| Severity | Count |
-|----------|-------|
-| Critical | 3 |
-| High     | 7 |
-| Medium   | 7 |
-| Low/Test | 7 |
-| **Total** | **24** |
+| Severity | Total | Fixed | Remaining |
+|----------|-------|-------|-----------|
+| Critical | 4 (incl. 1 false positive) | 4 | 0 |
+| High     | 7 | 3 | 4 (CR-06 partially fixed) |
+| Medium   | 7 | 0 | 7 |
+| Low/Test | 7 | 3 | 4 |
+| **Total** | **25** | **10** | **15** |
 
-### Recommended immediate actions (before any production use)
-1. Remove `.env` from the Docker build (CR-02)
-3. Implement real authentication with tokens and hashed passwords (CR-03, CR-04)
-4. Add `vi` import to `KanbanCard.test.tsx` so tests are correct (CR-18)
-5. Create or remove `src/test/setup.ts` (CR-19)
+### Remaining actions (before production use)
+1. Persist conversation history to DB with a cap/TTL (CR-06)
+2. Validate AI response structure before using it (CR-07)
+3. Enable SQLite foreign key enforcement (CR-11)
+4. Clear `setTimeout` on unmount in `KanbanBoard` (CR-14)
+5. Add React Error Boundary around `KanbanBoard` (CR-16)

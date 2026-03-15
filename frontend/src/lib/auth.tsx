@@ -1,43 +1,40 @@
 "use client";
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from "react";
+import { api, ApiUser } from "@/lib/api";
 
 export type AuthContextType = {
-  user: string | null;
-  login: (username: string, password: string) => boolean;
-  logout: () => void;
+  user: ApiUser | null;
+  loading: boolean;
+  loginWithGoogle: () => void;
+  logout: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<ApiUser | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const saved = typeof window !== "undefined" ? sessionStorage.getItem("user") : null;
-    if (saved) setUser(saved);
+    api
+      .getMe()
+      .then(setUser)
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
-  const login = (username: string, password: string) => {
-    if (username === "user" && password === "password") {
-      setUser(username);
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem("user", username);
-      }
-      return true;
-    }
-    return false;
+  const loginWithGoogle = () => {
+    window.location.href = "/api/auth/google";
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await api.logout();
     setUser(null);
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem("user");
-    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, loginWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );

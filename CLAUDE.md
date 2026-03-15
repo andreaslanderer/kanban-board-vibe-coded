@@ -83,11 +83,18 @@ The SQLite file is `backend/data.db`. On startup, `on_startup` auto-migrates sta
 
 | Layer | Files |
 |-------|-------|
-| Pages | `app/page.tsx` — renders `<Login>` or `<KanbanBoard>` based on auth state |
+| Pages | `app/page.tsx` — shows nothing while auth loads, then `<Login>` or `<KanbanBoard>` |
 | State | `KanbanBoard.tsx` — owns all board state, drag-drop, AI chat, optimistic updates |
 | API client | `lib/api.ts` — typed wrappers for all backend endpoints; converts numeric backend IDs to string frontend IDs |
-| Auth | `lib/auth.tsx` — `AuthContext` with `useAuth()` hook; state in `sessionStorage` |
+| Auth | `lib/auth.tsx` — `AuthContext` with `useAuth()` hook; calls `GET /api/auth/me` on mount to restore session |
 | Types | `lib/kanban.ts` — `Card`, `Column`, `BoardData` types and `moveCard()` logic |
+
+**Frontend auth flow:**
+- On mount, `AuthProvider` calls `api.getMe()` (`GET /api/auth/me`). If 200, sets `user`; if 401, sets `user=null`. A `loading` flag prevents flashing the login page.
+- `loginWithGoogle()` — sets `window.location.href = '/api/auth/google'` (full redirect, not a fetch).
+- `logout()` — calls `api.logout()` (`POST /api/auth/logout`), then sets `user=null`.
+- `Login.tsx` shows a single "Sign in with Google" button. Displays an error message when `?error=oauth_failed` is in the URL (set by the backend on OAuth failure).
+- `api.getMe()` is the only API function that does not throw on 401; it returns `null` instead.
 
 Drag-and-drop uses `@dnd-kit`. All mutations are optimistic: the UI updates immediately, with rollback on API failure.
 
