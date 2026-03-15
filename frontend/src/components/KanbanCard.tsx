@@ -44,10 +44,22 @@ export const KanbanCard = ({ card, onDelete, highlighted = false }: KanbanCardPr
         <button
           type="button"
           onClick={() => onDelete(card.id)}
-          className="rounded-full border border-transparent px-2 py-1 text-xs font-semibold text-[var(--gray-text)] transition hover:border-[var(--stroke)] hover:text-[var(--navy-dark)]"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors"
+          style={{ color: "var(--gray-text)" }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = "#fef2f2";
+            (e.currentTarget as HTMLButtonElement).style.color = "#ef4444";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--gray-text)";
+          }}
           aria-label={`Delete ${card.title}`}
         >
-          Remove
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M1 3h12M5 3V2h4v1M2 3l1 9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-9" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M5.5 6v4M8.5 6v4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
+          </svg>
         </button>
       </div>
     </article>
