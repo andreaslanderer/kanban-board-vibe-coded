@@ -33,9 +33,25 @@ export interface ApiUser {
 
 export type AIChatMessage = { role: "user" | "assistant"; content: string };
 
+export type AIBoardCardUpdate = {
+  id?: number;
+  title?: string;
+  description?: string;
+  columnId?: number;
+  delete?: boolean;
+};
+
+export type AIBoardColumnUpdate = {
+  id?: number;
+  title?: string;
+};
+
 export type AIChatResponse = {
   response: string;
-  boardUpdates?: { cards?: Card[]; columns?: Column[] };
+  boardUpdates?: {
+    cards?: AIBoardCardUpdate[];
+    columns?: AIBoardColumnUpdate[];
+  } | null;
 };
 
 // Frontend types (from kanban.ts)
@@ -154,9 +170,9 @@ export const api = {
       body: JSON.stringify({ columnId: parseInt(columnId), position }),
     }).then(apiCardToCard),
 
-  chat: (question: string, conversationHistory: AIChatMessage[]): Promise<AIChatResponse> =>
+  chat: (question: string): Promise<AIChatResponse> =>
     apiRequest<AIChatResponse>("/ai/chat", {
       method: "POST",
-      body: JSON.stringify({ question, conversationHistory }),
+      body: JSON.stringify({ question }),
     }),
 };

@@ -1,5 +1,6 @@
 from typing import Optional
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from . import models
@@ -39,13 +40,8 @@ def create_oauth_user(
 # --- Board ---
 
 def get_board_for_user(db: Session, user_id: int) -> Optional[models.Board]:
-    board = db.query(models.Board).filter(models.Board.user_id == user_id).first()
-    if not board:
-        return None
-    board.columns.sort(key=lambda col: col.position)
-    for col in board.columns:
-        col.cards.sort(key=lambda card: card.position)
-    return board
+    # Relationships already define order_by=position, so no Python-level sort needed
+    return db.query(models.Board).filter(models.Board.user_id == user_id).first()
 
 
 def create_board(db: Session, user_id: int, name: str) -> models.Board:
@@ -138,15 +134,10 @@ def delete_card(db: Session, card_id: int) -> bool:
     position = card.position
     db.delete(card)
     db.commit()
-    # Shift remaining cards in the column to fill the gap
-    cards = (
-        db.query(models.Card)
-        .filter(models.Card.column_id == column_id, models.Card.position > position)
-        .order_by(models.Card.position)
-        .all()
-    )
-    for c in cards:
-        c.position -= 1
+    # Bulk shift remaining cards in the column to fill the gap (single UPDATE)
+    db.query(models.Card).filter(
+        models.Card.column_id == column_id, models.Card.position > position
+    ).update({"position": models.Card.position - 1}, synchronize_session="evaluate")
     db.commit()
     return True
 
@@ -182,27 +173,15 @@ def move_card(
         db.refresh(card)
         return card
 
-    # Moving between columns
-    source_cards = (
-        db.query(models.Card)
-        .filter(models.Card.column_id == source_column_id, models.Card.position > source_position)
-        .order_by(models.Card.position)
-        .all()
-    )
-    for c in source_cards:
-        c.position -= 1
+    # Moving between columns — bulk UPDATE instead of per-row Python loops
+    db.query(models.Card).filter(
+        models.Card.column_id == source_column_id, models.Card.position > source_position
+    ).update({"position": models.Card.position - 1}, synchronize_session="evaluate")
 
-    target_cards = (
-        db.query(models.Card)
-        .filter(
-            models.Card.column_id == target_column_id,
-            models.Card.position >= target_position,
-        )
-        .order_by(models.Card.position)
-        .all()
-    )
-    for c in target_cards:
-        c.position += 1
+    db.query(models.Card).filter(
+        models.Card.column_id == target_column_id,
+        models.Card.position >= target_position,
+    ).update({"position": models.Card.position + 1}, synchronize_session="evaluate")
 
     card.column_id = target_column_id
     card.position = target_position

@@ -37,10 +37,7 @@ def test_ai_chat_structured(auth_client, monkeypatch):
         _dummy_openai(json.dumps({"response": "Here is your answer.", "boardUpdates": {"cards": [], "columns": []}})),
     )
 
-    response = auth_client.post(
-        "/api/ai/chat",
-        json={"question": "Add a new card to Backlog", "conversationHistory": []},
-    )
+    response = auth_client.post("/api/ai/chat", json={"question": "Add a new card to Backlog"})
     assert response.status_code == 200
     data = response.json()
     assert data["response"] == "Here is your answer."
@@ -48,17 +45,40 @@ def test_ai_chat_structured(auth_client, monkeypatch):
 
 
 def test_ai_chat_fallback(auth_client, monkeypatch):
+    """Plain-text (non-JSON) AI response falls back gracefully."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
     monkeypatch.setattr("app.main.OpenAI", _dummy_openai("Just a plain text answer."))
 
-    response = auth_client.post(
-        "/api/ai/chat",
-        json={"question": "What is the status?", "conversationHistory": []},
-    )
+    response = auth_client.post("/api/ai/chat", json={"question": "What is the status?"})
     assert response.status_code == 200
     data = response.json()
     assert data["response"] == "Just a plain text answer."
     assert data.get("boardUpdates") is None
+
+
+def test_ai_chat_invalid_schema_falls_back(auth_client, monkeypatch):
+    """Valid JSON that fails schema validation falls back to plain text response."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
+    # JSON is valid but missing the required 'response' field
+    monkeypatch.setattr("app.main.OpenAI", _dummy_openai(json.dumps({"wrong_field": "value"})))
+
+    response = auth_client.post("/api/ai/chat", json={"question": "test"})
+    assert response.status_code == 200
+    data = response.json()
+    # Falls back: raw AI content becomes the response
+    assert data["response"] == json.dumps({"wrong_field": "value"})
+    assert data.get("boardUpdates") is None
+
+
+def test_ai_chat_markdown_fences_stripped(auth_client, monkeypatch):
+    """AI response wrapped in markdown code fences is parsed correctly."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test_key")
+    inner = json.dumps({"response": "Stripped!", "boardUpdates": None})
+    monkeypatch.setattr("app.main.OpenAI", _dummy_openai(f"```json\n{inner}\n```"))
+
+    response = auth_client.post("/api/ai/chat", json={"question": "test"})
+    assert response.status_code == 200
+    assert response.json()["response"] == "Stripped!"
 
 
 def test_ai_chat_no_api_key(auth_client, monkeypatch):
@@ -82,6 +102,7 @@ def test_ai_chat_conversation_history_grows(auth_client, monkeypatch):
     auth_client.post("/api/ai/chat", json={"question": "First message"})
     auth_client.post("/api/ai/chat", json={"question": "Second message"})
 
+
     history_resp = auth_client.get("/api/ai/history")
     assert history_resp.status_code == 200
     messages = history_resp.json()["messages"]
@@ -99,6 +120,7 @@ def test_ai_history_clear(auth_client, monkeypatch):
     )
 
     auth_client.post("/api/ai/chat", json={"question": "Seed a message"})
+
 
     # Confirm there is at least one message
     history_before = auth_client.get("/api/ai/history").json()["messages"]

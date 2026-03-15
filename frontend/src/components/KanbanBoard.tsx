@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   DndContext,
@@ -16,6 +16,7 @@ import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { api, type BoardData, type AIChatMessage, type AIChatResponse } from "@/lib/api";
+import type { AIBoardCardUpdate, AIBoardColumnUpdate } from "@/lib/api";
 import { createId, moveCard } from "@/lib/kanban";
 
 export const KanbanBoard = () => {
@@ -30,8 +31,16 @@ export const KanbanBoard = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [highlightedCardIds, setHighlightedCardIds] = useState<string[]>([]);
+  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { logout } = useAuth();
+
+  // Clear any pending highlight timeout when the component unmounts (CR-14)
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+    };
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -195,7 +204,7 @@ export const KanbanBoard = () => {
     setChatMessages(prev => [...prev, userMessage]);
 
     try {
-      const response: AIChatResponse = await api.chat(message, chatMessages);
+      const response: AIChatResponse = await api.chat(message);
 
       // Add AI response to chat
       const aiMessage: AIChatMessage = { role: "assistant", content: response.response };
@@ -212,122 +221,110 @@ export const KanbanBoard = () => {
     }
   };
 
-  const applyBoardUpdates = async (updates: { cards?: any[]; columns?: any[] }) => {
+  const applyBoardUpdates = async (
+    updates: NonNullable<AIChatResponse["boardUpdates"]>
+  ) => {
     if (!board || !boardId) return;
 
+    // Snapshot for rollback if any update fails (CR-09)
+    const boardSnapshot = board;
+    let currentBoard = board;
     const newHighlightedIds: string[] = [];
 
-    // Apply card updates
-    if (updates.cards) {
-      for (const cardUpdate of updates.cards) {
-        try {
-          const cardId = cardUpdate.id?.toString(); // Convert to string for frontend state
-          
+    try {
+      if (updates.cards) {
+        for (const cardUpdate of updates.cards as AIBoardCardUpdate[]) {
+          const cardId = cardUpdate.id?.toString();
+
           if (cardId) {
             if (cardUpdate.delete) {
-              // Delete existing card
               await api.deleteCard(cardId);
-              setBoard(prev => {
-                if (!prev) return prev;
-                const { [cardId]: deletedCard, ...remainingCards } = prev.cards;
-                const columnWithCard = prev.columns.find(col => col.cardIds.includes(cardId));
-                
-                return {
-                  cards: remainingCards,
-                  columns: prev.columns.map(col =>
-                    col.id === columnWithCard?.id
-                      ? { ...col, cardIds: col.cardIds.filter(id => id !== cardId) }
-                      : col
-                  )
-                };
-              });
+              const columnWithCard = currentBoard.columns.find(col => col.cardIds.includes(cardId));
+              const { [cardId]: _deleted, ...remainingCards } = currentBoard.cards;
+              currentBoard = {
+                cards: remainingCards,
+                columns: currentBoard.columns.map(col =>
+                  col.id === columnWithCard?.id
+                    ? { ...col, cardIds: col.cardIds.filter(id => id !== cardId) }
+                    : col
+                ),
+              };
             } else if (cardUpdate.columnId !== undefined) {
-              // Move card to different column
-              const movedCard = await api.moveCard(cardId, cardUpdate.columnId.toString(), 0); // position 0 = end of column
-              setBoard(prev => {
-                if (!prev) return prev;
-                // Remove card from old column and add to new column
-                const oldColumn = prev.columns.find(col => col.cardIds.includes(cardId));
-                const newColumn = prev.columns.find(col => col.id === cardUpdate.columnId.toString());
-                if (!oldColumn || !newColumn) return prev;
-
-                return {
-                  cards: { ...prev.cards, [movedCard.id]: movedCard },
-                  columns: prev.columns.map(col => {
-                    if (col.id === oldColumn.id) {
+              const movedCard = await api.moveCard(cardId, cardUpdate.columnId.toString(), 0);
+              const oldColumn = currentBoard.columns.find(col => col.cardIds.includes(cardId));
+              const newColumn = currentBoard.columns.find(
+                col => col.id === cardUpdate.columnId!.toString()
+              );
+              if (oldColumn && newColumn) {
+                currentBoard = {
+                  cards: { ...currentBoard.cards, [movedCard.id]: movedCard },
+                  columns: currentBoard.columns.map(col => {
+                    if (col.id === oldColumn.id)
                       return { ...col, cardIds: col.cardIds.filter(id => id !== cardId) };
-                    } else if (col.id === newColumn.id) {
+                    if (col.id === newColumn.id)
                       return { ...col, cardIds: [...col.cardIds, movedCard.id] };
-                    }
                     return col;
-                  })
+                  }),
                 };
-              });
-              newHighlightedIds.push(movedCard.id);
+                newHighlightedIds.push(movedCard.id);
+              }
             } else {
-              // Update card title/description only
               const updatedCard = await api.updateCard(cardId, cardUpdate.title, cardUpdate.description);
-              setBoard(prev => {
-                if (!prev) return prev;
-                return {
-                  ...prev,
-                  cards: { ...prev.cards, [updatedCard.id]: updatedCard }
-                };
-              });
+              currentBoard = {
+                ...currentBoard,
+                cards: { ...currentBoard.cards, [updatedCard.id]: updatedCard },
+              };
               newHighlightedIds.push(updatedCard.id);
             }
-          } else if (cardUpdate.title && cardUpdate.columnId) {
-            // Create new card
-            const newCard = await api.createCard(boardId, cardUpdate.columnId, cardUpdate.title, cardUpdate.description);
-            setBoard(prev => {
-              if (!prev) return prev;
-              const targetColumnId = cardUpdate.columnId.toString();
-              const targetColumn = prev.columns.find(col => col.id === targetColumnId);
-              if (!targetColumn) return prev;
-
-              return {
-                cards: { ...prev.cards, [newCard.id]: newCard },
-                columns: prev.columns.map(col =>
-                  col.id === targetColumnId
-                    ? { ...col, cardIds: [...col.cardIds, newCard.id] }
-                    : col
-                )
-              };
-            });
+          } else if (cardUpdate.title && cardUpdate.columnId !== undefined) {
+            const newCard = await api.createCard(
+              boardId,
+              cardUpdate.columnId.toString(),
+              cardUpdate.title,
+              cardUpdate.description ?? ""
+            );
+            const targetColumnId = cardUpdate.columnId.toString();
+            currentBoard = {
+              cards: { ...currentBoard.cards, [newCard.id]: newCard },
+              columns: currentBoard.columns.map(col =>
+                col.id === targetColumnId
+                  ? { ...col, cardIds: [...col.cardIds, newCard.id] }
+                  : col
+              ),
+            };
             newHighlightedIds.push(newCard.id);
           }
-        } catch (err) {
-          console.error("Failed to apply card update:", err);
         }
       }
-    }
 
-    // Apply column updates
-    if (updates.columns) {
-      for (const columnUpdate of updates.columns) {
-        try {
+      if (updates.columns) {
+        for (const columnUpdate of updates.columns as AIBoardColumnUpdate[]) {
           if (columnUpdate.id && columnUpdate.title) {
-            await api.renameColumn(columnUpdate.id, columnUpdate.title);
-            setBoard(prev => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                columns: prev.columns.map(col =>
-                  col.id === columnUpdate.id ? { ...col, title: columnUpdate.title } : col
-                )
-              };
-            });
+            await api.renameColumn(columnUpdate.id.toString(), columnUpdate.title);
+            currentBoard = {
+              ...currentBoard,
+              columns: currentBoard.columns.map(col =>
+                col.id === columnUpdate.id!.toString()
+                  ? { ...col, title: columnUpdate.title! }
+                  : col
+              ),
+            };
           }
-        } catch (err) {
-          console.error("Failed to apply column update:", err);
         }
       }
-    }
 
-    // Highlight updated cards briefly
-    if (newHighlightedIds.length > 0) {
-      setHighlightedCardIds(newHighlightedIds);
-      setTimeout(() => setHighlightedCardIds([]), 3000);
+      // Single setBoard call with all accumulated changes (CR-15)
+      setBoard(currentBoard);
+
+      if (newHighlightedIds.length > 0) {
+        setHighlightedCardIds(newHighlightedIds);
+        if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+        highlightTimeoutRef.current = setTimeout(() => setHighlightedCardIds([]), 3000);
+      }
+    } catch (err) {
+      // Revert to pre-update snapshot on any failure (CR-09)
+      setBoard(boardSnapshot);
+      setChatError("Failed to apply board updates");
     }
   };
 

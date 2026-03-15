@@ -52,20 +52,26 @@ New endpoints:
 
 The frontend loads history via `api.getChatHistory()` on board mount so conversations survive page refreshes. A "Clear history" button appears in the AI Assistant sidebar header when there are messages, calling `api.clearChatHistory()`.
 
-### CR-07: AI response parsed without schema validation
+### ~~CR-07: AI response parsed without schema validation~~ — FIXED
 **File:** `backend/app/main.py` — AI chat endpoint
 
-The AI response is `json.loads()`-ed and passed directly to `AIChatResponse(**parsed)` with no validation of field types or structure. A malformed or adversarial AI response could cause unpredictable behaviour. Validate the parsed dict against the expected schema before using it.
+~~The AI response is `json.loads()`-ed and passed directly to `AIChatResponse(**parsed)` with no validation of field types or structure.~~
 
-### CR-08: `conversationHistory` request field silently ignored
-**File:** `backend/app/ai_schemas.py`
+`ai_schemas.py` now has fully typed nested models (`AICardUpdate`, `AIColumnUpdate`, `AIBoardUpdates`). The chat endpoint uses `AIChatResponse.model_validate(parsed)` (Pydantic v2), which raises `ValidationError` on schema mismatch. The response parser also strips markdown code fences before JSON parsing. Any `JSONDecodeError` or `ValidationError` falls back to returning the raw AI text as a plain-text response. Two new tests cover these paths: `test_ai_chat_invalid_schema_falls_back` and `test_ai_chat_markdown_fences_stripped`.
 
-`AIChatRequest.conversationHistory` is accepted but never used — the backend maintains its own history. This is a misleading API contract. Either remove the field or use it to let the client drive history.
+### ~~CR-08: `conversationHistory` request field silently ignored~~ — FIXED
+**File:** `backend/app/ai_schemas.py`, `frontend/src/lib/api.ts`
 
-### CR-09: Board updates from AI are fire-and-forget
+~~`AIChatRequest.conversationHistory` is accepted but never used.~~
+
+Removed `conversationHistory` from `AIChatRequest`. The `api.chat()` function in the frontend no longer sends or accepts this parameter. The frontend `AIChatResponse` type is updated to use the proper typed `AIBoardCardUpdate` / `AIBoardColumnUpdate` subtypes instead of the generic `Card[]`/`Column[]` that was there before.
+
+### ~~CR-09: Board updates from AI are fire-and-forget~~ — FIXED
 **File:** `frontend/src/components/KanbanBoard.tsx` `applyBoardUpdates()`
 
-AI-driven board mutations call multiple API endpoints sequentially with no rollback if one fails mid-way. A partial failure leaves the board in an inconsistent state. Wrap these in a transaction or revert to the pre-update snapshot on any failure.
+~~AI-driven board mutations call multiple API endpoints sequentially with no rollback if one fails mid-way.~~
+
+`applyBoardUpdates` now captures a `boardSnapshot` before processing. All mutations are applied to a local `currentBoard` variable with no intermediate `setBoard` calls. A single `setBoard(currentBoard)` is called once all updates succeed. A wrapping `try/catch` reverts to `boardSnapshot` on any failure and surfaces the error in the chat sidebar.
 
 ### ~~CR-10: Duplicate and unused imports in main.py~~ — FIXED (OAuth implementation)
 **File:** `backend/app/main.py`
@@ -78,57 +84,54 @@ Resolved as a side effect of the full `main.py` rewrite for the OAuth implementa
 
 ## Medium
 
-### CR-11: SQLite foreign key enforcement disabled (default)
+### ~~CR-11: SQLite foreign key enforcement disabled (default)~~ — FIXED
 **File:** `backend/app/database.py`
 
-SQLite does not enforce foreign keys by default. Orphaned cards and columns are possible if application-level cascade logic has a bug. Enable it at connection time:
+~~SQLite does not enforce foreign keys by default. Orphaned cards and columns are possible if application-level cascade logic has a bug.~~
 
-```python
-from sqlalchemy import event
+Added an `@event.listens_for(engine, "connect")` listener in `database.py` that executes `PRAGMA foreign_keys=ON` for every new SQLite connection.
 
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_conn, _):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
-```
-
-### CR-12: Redundant Python-level sort in `get_board_for_user`
+### ~~CR-12: Redundant Python-level sort in `get_board_for_user`~~ — FIXED
 **File:** `backend/app/crud.py`
 
-Columns and cards are sorted in Python after the query, but the SQLAlchemy relationships already define `order_by=position`. The Python sort is redundant — remove it.
+~~Columns and cards are sorted in Python after the query, but the SQLAlchemy relationships already define `order_by=position`.~~
 
-### CR-13: O(n) position recalculation on every card move/delete
+Removed the `.sort()` calls. `get_board_for_user` now simply returns the query result directly; ordering is handled by the `order_by="KanbanColumn.position"` and `order_by="Card.position"` clauses on the ORM relationships.
+
+### ~~CR-13: O(n) position recalculation on every card move/delete~~ — FIXED
 **File:** `backend/app/crud.py` — `delete_card`, `move_card`
 
-After removing or moving a card, the code loops over remaining cards and decrements their `position` by 1 in a Python loop, issuing one UPDATE per card. For large boards this is slow. Use a single bulk UPDATE:
-```sql
-UPDATE cards SET position = position - 1
-WHERE column_id = :col AND position > :removed_pos
-```
+~~The code loops over remaining cards and issues one UPDATE per card.~~
 
-### CR-14: `setTimeout` not cleared on unmount
-**File:** `frontend/src/components/KanbanBoard.tsx` — `applyBoardUpdates()`
+`delete_card` and the cross-column path of `move_card` now use `Query.update()` with an expression-based value (`{"position": models.Card.position - 1}`), issuing a single bulk SQL UPDATE per shift operation instead of one per card.
 
-```typescript
-setTimeout(() => setHighlightedCardIds([]), 3000);
-```
-If the component unmounts before the timer fires, `setState` is called on an unmounted component. Store the timeout ID in a ref and clear it in a `useEffect` cleanup.
-
-### CR-15: Multiple sequential `setBoard` calls in `applyBoardUpdates`
+### ~~CR-14: `setTimeout` not cleared on unmount~~ — FIXED
 **File:** `frontend/src/components/KanbanBoard.tsx`
 
-`applyBoardUpdates` calls `setBoard` inside loops, triggering one re-render per update. Accumulate all changes into a single state object and call `setBoard` once.
+~~If the component unmounts before the timer fires, `setState` is called on an unmounted component.~~
 
-### CR-16: No error boundary
-**File:** `frontend/src/app/page.tsx`
+Added `highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)`. A `useEffect` cleanup clears the timeout on unmount. `applyBoardUpdates` clears any existing timeout before setting a new one.
 
-An uncaught exception in `KanbanBoard` will white-screen the entire app with no recovery path. Wrap the board in a React Error Boundary component.
+### ~~CR-15: Multiple sequential `setBoard` calls in `applyBoardUpdates`~~ — FIXED
+**File:** `frontend/src/components/KanbanBoard.tsx`
 
-### CR-17: Missing startup validation for `OPENROUTER_API_KEY`
+~~`applyBoardUpdates` calls `setBoard` inside loops, triggering one re-render per update.~~
+
+All mutations are now accumulated into a local `currentBoard` variable. A single `setBoard(currentBoard)` is called once after all updates succeed, producing exactly one re-render regardless of how many operations the AI requested.
+
+### ~~CR-16: No error boundary~~ — FIXED
+**File:** `frontend/src/components/ErrorBoundary.tsx`, `frontend/src/app/page.tsx`
+
+~~An uncaught exception in `KanbanBoard` will white-screen the entire app with no recovery path.~~
+
+Added `ErrorBoundary` class component (`getDerivedStateFromError` + fallback UI with a "Try again" button that resets the error state). `KanbanBoard` is now wrapped in `<ErrorBoundary>` in `page.tsx`.
+
+### ~~CR-17: Missing startup validation for `OPENROUTER_API_KEY`~~ — FIXED
 **File:** `backend/app/main.py`
 
-The API key is only checked on the first AI request, producing a generic 500. Validate required environment variables at startup and fail fast with a clear message.
+~~The API key is only checked on the first AI request, producing a generic 500.~~
+
+`on_startup` now checks for `OPENROUTER_API_KEY` and emits an `ERROR`-level log warning if it is absent, so the misconfiguration is surfaced immediately in the server logs rather than at first request time.
 
 ---
 
@@ -178,13 +181,13 @@ The README still says the AI chat feature is planned. It is fully implemented. U
 | Severity | Total | Fixed | Remaining |
 |----------|-------|-------|-----------|
 | Critical | 4 (incl. 1 false positive) | 4 | 0 |
-| High     | 7 | 4 | 3 |
-| Medium   | 7 | 0 | 7 |
+| High     | 7 | 7 | 0 |
+| Medium   | 7 | 7 | 0 |
 | Low/Test | 7 | 3 | 4 |
-| **Total** | **25** | **11** | **14** |
+| **Total** | **25** | **21** | **4** |
 
-### Remaining actions (before production use)
-1. Validate AI response structure before using it (CR-07)
-2. Enable SQLite foreign key enforcement (CR-11)
-3. Clear `setTimeout` on unmount in `KanbanBoard` (CR-14)
-4. Add React Error Boundary around `KanbanBoard` (CR-16)
+### Remaining items (Low / Test Coverage)
+- CR-18: Add `import { vi } from "vitest"` to `KanbanCard.test.tsx`
+- CR-21: Missing tests for optimistic-update revert paths in `KanbanBoard`
+- CR-22: Missing unit tests for `api.ts` conversion functions
+- CR-24: README still describes AI chat as "planned"

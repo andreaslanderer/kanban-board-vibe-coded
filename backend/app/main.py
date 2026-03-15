@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import secrets
 from urllib.parse import urlencode
@@ -8,6 +9,7 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, st
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
+from pydantic import ValidationError
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,8 @@ from .ai_schemas import AIChatRequest, AIChatResponse
 from .auth import create_access_token
 from .database import SessionLocal, engine
 from .deps import get_current_user, get_db
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -36,6 +40,10 @@ def on_startup():
     models.Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         crud.seed_default_data(session)
+    if not os.getenv("OPENROUTER_API_KEY"):
+        logger.warning(
+            "OPENROUTER_API_KEY is not set — AI endpoints will return 500 until it is configured"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -331,12 +339,17 @@ User message:
             messages=[{"role": "user", "content": prompt}],
         )
         ai_content = response.choices[0].message.content
+        # Strip markdown code fences that some models wrap around JSON
+        content = ai_content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1] if "\n" in content else content
+            content = content.rsplit("```", 1)[0].strip()
         try:
-            parsed = json.loads(ai_content)
-            assistant_text = parsed.get("response", ai_content)
-            crud.append_message(db, current_user.id, "assistant", assistant_text)
-            return AIChatResponse(**parsed)
-        except Exception:
+            parsed = json.loads(content)
+            validated = AIChatResponse.model_validate(parsed)
+            crud.append_message(db, current_user.id, "assistant", validated.response)
+            return validated
+        except (json.JSONDecodeError, ValidationError):
             crud.append_message(db, current_user.id, "assistant", ai_content)
             return AIChatResponse(response=ai_content)
     except Exception as e:
