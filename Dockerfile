@@ -22,6 +22,7 @@ RUN uv sync --no-editable
 
 # copy backend source
 COPY backend ./backend
+RUN mkdir -p /data
 
 # copy built frontend static export for later serving
 COPY --from=frontend-build /workspace/frontend/out ./frontend/out

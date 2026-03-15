@@ -3,7 +3,7 @@ import os
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./data.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:////data/data.db")
 
 # SQLite needs check_same_thread=False for access across threads (FastAPI uses threads)
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

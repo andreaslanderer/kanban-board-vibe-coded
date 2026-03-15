@@ -64,6 +64,7 @@ db.sqlite3-journal
 # Application database (runtime data, auto-created on startup)
 data.db
 backend/data.db
+data/
 
 # Flask stuff:
 instance/
