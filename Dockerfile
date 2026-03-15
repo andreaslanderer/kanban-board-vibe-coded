@@ -27,9 +27,6 @@ COPY backend ./backend
 COPY --from=frontend-build /workspace/frontend/out ./frontend/out
 COPY --from=frontend-build /workspace/frontend/public ./frontend/public
 
-# Copy .env file
-COPY .env .env
-
 EXPOSE 8000
 
 # run uvicorn application from package
