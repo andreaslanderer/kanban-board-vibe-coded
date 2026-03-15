@@ -17,8 +17,23 @@ def test_client(tmp_path_factory):
     index_path = Path(out_dir) / "index.html"
     index_path.write_text("<html><body><h1>Static Export</h1></body></html>")
 
-    # Import app after setting env var
+    # Import app after setting env var so the DB engine binds to the test DB
     from app.main import app
 
     with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture(scope="session")
+def auth_client(test_client):
+    """Authenticated test client with its own cookie jar, logged in as test@example.com.
+
+    Uses a separate TestClient instance so that unauthenticated / other-user tests run
+    against ``test_client`` without corrupting the authenticated session here.
+    """
+    from app.main import app
+
+    with TestClient(app) as client:
+        resp = client.post("/api/auth/dev-login", json={"email": "test@example.com"})
+        assert resp.status_code == 200, f"dev-login failed: {resp.text}"
         yield client

@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
-
-
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class UserOut(BaseModel):
     id: int
-    username: str
+    email: str
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DevLoginRequest(BaseModel):
+    email: str
 
 
 class CardBase(BaseModel):
@@ -63,16 +66,3 @@ class BoardOut(BaseModel):
 
 class ColumnUpdate(BaseModel):
     title: str
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class LoginResponse(BaseModel):
-    success: bool
-    user: Optional[UserOut] = None
-    message: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)

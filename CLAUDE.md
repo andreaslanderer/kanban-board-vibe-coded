@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A full-stack Kanban board MVP with AI chat integration. The backend (FastAPI) serves the frontend (Next.js static export) and exposes a REST API. The app runs in Docker as a single container on port 8000.
 
-**Auth:** Hardcoded credentials — username: `user`, password: `password`. This is intentional for the MVP.
+**Auth:** Google OAuth 2.0 (Authorization Code flow). JWT stored as `HttpOnly` cookie (`access_token`, 24h). In non-production environments a `POST /api/auth/dev-login` bypass is available (disabled when `APP_ENV=production`).
 
 ## Commands
 
@@ -21,7 +21,7 @@ A full-stack Kanban board MVP with AI chat integration. The backend (FastAPI) se
 cd backend
 uv sync                                        # Install dependencies (from backend/)
 uv run pytest tests/                           # Run all backend tests (must run from backend/)
-uv run pytest tests/test_main.py::test_auth_login_success  # Run single test
+uv run pytest tests/test_auth.py::test_me_authenticated  # Run single test
 ```
 
 To start the dev server, run from the **project root**:
@@ -60,15 +60,22 @@ In development, the frontend dev server proxies API calls to the FastAPI backend
 
 | File | Purpose |
 |------|---------|
-| `main.py` | All FastAPI routes, startup seeding, AI logic, static file mounting |
+| `main.py` | All FastAPI routes, OAuth flow, AI logic, static file mounting |
 | `models.py` | SQLAlchemy ORM: `User`, `Board`, `KanbanColumn`, `Card` |
 | `schemas.py` | Pydantic request/response schemas |
 | `crud.py` | All database operations including card position reordering |
 | `database.py` | SQLite config, session factory |
-| `deps.py` | `get_db()` dependency injection |
+| `auth.py` | JWT creation/decoding (`python-jose`, HS256, 24h expiry) |
+| `deps.py` | `get_db()` and `get_current_user()` dependency injection |
 | `ai_schemas.py` | `AIChatRequest` / `AIChatResponse` schemas |
 
-The database is seeded on startup with a default user, board, 5 columns, and 2 sample cards (`crud.seed_default_data()`). The SQLite file is `backend/data.db`.
+The SQLite file is `backend/data.db`. On startup, `on_startup` auto-migrates stale schemas (drops/recreates tables if `username` column is detected). User boards are created on first login, not via seeding.
+
+**Auth flow:**
+1. `GET /api/auth/google` → redirects to Google, sets `oauth_state` cookie (CSRF).
+2. `GET /api/auth/google/callback` → exchanges code, validates state, upserts user, sets `access_token` JWT cookie, redirects to `/`.
+3. All `/api/boards`, `/api/cards`, `/api/columns`, `/api/ai/chat` require a valid `access_token` cookie (enforced via `Depends(get_current_user)`).
+4. `POST /api/auth/dev-login` — dev/test only (404 in production): creates or fetches a user by email, issues JWT.
 
 **AI integration:** `POST /api/ai/chat` uses the OpenAI client pointed at OpenRouter (`openai/gpt-oss-120b` model). It sends the full board state as JSON context plus conversation history. The AI returns structured JSON with an optional `boardUpdates` field that the frontend applies as card/column mutations. Per-user conversation history is stored in-memory (lost on restart).
 
@@ -96,9 +103,14 @@ No emojis in code or UI per project conventions.
 
 ## Environment
 
-Copy `.env.template` to `.env` and add your OpenRouter API key:
+Copy `.env.template` to `.env` and fill in required values:
 ```
 OPENROUTER_API_KEY=<your_key>
+GOOGLE_CLIENT_ID=<from Google Cloud Console>
+GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+APP_BASE_URL=http://localhost:8000   # used to build OAuth redirect URI
+JWT_SECRET=<random secret>           # signs access_token cookies
+APP_ENV=development                  # set to "production" to disable dev-login
 ```
 
-The `.env` file is copied into the Docker image at build time.
+The `.env` file is **not** baked into the Docker image; it is mounted at runtime via `--env-file .env` in `start.sh`.

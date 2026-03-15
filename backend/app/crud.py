@@ -4,25 +4,44 @@ from sqlalchemy.orm import Session
 
 from . import models
 
-
-def get_user_by_username(db: Session, username: str) -> Optional[models.User]:
-    return db.query(models.User).filter(models.User.username == username).first()
+DEFAULT_COLUMNS = ["Backlog", "Discovery", "In Progress", "Review", "Done"]
 
 
-def create_user(db: Session, username: str, password_hash: str) -> models.User:
-    user = models.User(username=username, password_hash=password_hash)
+# --- User ---
+
+def get_user_by_google_id(db: Session, google_id: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.google_id == google_id).first()
+
+
+def get_user_by_email(db: Session, email: str) -> Optional[models.User]:
+    return db.query(models.User).filter(models.User.email == email).first()
+
+
+def create_oauth_user(
+    db: Session,
+    google_id: str,
+    email: str,
+    display_name: Optional[str] = None,
+    avatar_url: Optional[str] = None,
+) -> models.User:
+    user = models.User(
+        google_id=google_id,
+        email=email,
+        display_name=display_name,
+        avatar_url=avatar_url,
+    )
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
 
 
+# --- Board ---
+
 def get_board_for_user(db: Session, user_id: int) -> Optional[models.Board]:
     board = db.query(models.Board).filter(models.Board.user_id == user_id).first()
     if not board:
         return None
-
-    # ensure consistent ordering for API output
     board.columns.sort(key=lambda col: col.position)
     for col in board.columns:
         col.cards.sort(key=lambda card: card.position)
@@ -36,6 +55,17 @@ def create_board(db: Session, user_id: int, name: str) -> models.Board:
     db.refresh(board)
     return board
 
+
+def create_user_default_board(db: Session, user_id: int) -> models.Board:
+    """Create the default board + columns for a newly registered user."""
+    board = create_board(db, user_id, "My Project")
+    for idx, title in enumerate(DEFAULT_COLUMNS):
+        create_column(db, board.id, title, position=idx)
+    db.refresh(board)
+    return board
+
+
+# --- Columns ---
 
 def create_column(db: Session, board_id: int, title: str, position: int) -> models.KanbanColumn:
     column = models.KanbanColumn(board_id=board_id, title=title, position=position)
@@ -59,19 +89,22 @@ def rename_column(db: Session, column_id: int, title: str) -> Optional[models.Ka
     return column
 
 
+# --- Cards ---
+
 def get_card(db: Session, card_id: int) -> Optional[models.Card]:
     return db.query(models.Card).filter(models.Card.id == card_id).first()
 
 
-def create_card(db: Session, column_id: int, title: str, description: Optional[str] = None) -> models.Card:
-    # place at end of column
-    max_position = (
+def create_card(
+    db: Session, column_id: int, title: str, description: Optional[str] = None
+) -> models.Card:
+    max_pos = (
         db.query(models.Card)
         .filter(models.Card.column_id == column_id)
         .order_by(models.Card.position.desc())
         .first()
     )
-    position = max_position.position + 1 if max_position else 0
+    position = max_pos.position + 1 if max_pos else 0
     card = models.Card(column_id=column_id, title=title, description=description, position=position)
     db.add(card)
     db.commit()
@@ -79,7 +112,12 @@ def create_card(db: Session, column_id: int, title: str, description: Optional[s
     return card
 
 
-def update_card(db: Session, card_id: int, title: Optional[str] = None, description: Optional[str] = None) -> Optional[models.Card]:
+def update_card(
+    db: Session,
+    card_id: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Optional[models.Card]:
     card = get_card(db, card_id)
     if not card:
         return None
@@ -100,7 +138,6 @@ def delete_card(db: Session, card_id: int) -> bool:
     position = card.position
     db.delete(card)
     db.commit()
-
     # Shift remaining cards in the column to fill the gap
     cards = (
         db.query(models.Card)
@@ -114,12 +151,12 @@ def delete_card(db: Session, card_id: int) -> bool:
     return True
 
 
-def move_card(db: Session, card_id: int, target_column_id: int, target_position: int) -> Optional[models.Card]:
+def move_card(
+    db: Session, card_id: int, target_column_id: int, target_position: int
+) -> Optional[models.Card]:
     card = get_card(db, card_id)
     if not card:
         return None
-
-    # validate target column exists
     target_column = get_column(db, target_column_id)
     if not target_column:
         return None
@@ -128,19 +165,15 @@ def move_card(db: Session, card_id: int, target_column_id: int, target_position:
     source_position = card.position
 
     if source_column_id == target_column_id:
-        # moving within same column
         if target_position == source_position:
             return card
-
         cards = (
             db.query(models.Card)
             .filter(models.Card.column_id == source_column_id)
             .order_by(models.Card.position)
             .all()
         )
-        # Remove the card from list
         cards = [c for c in cards if c.id != card.id]
-        # Insert at new position
         target_position = max(0, min(target_position, len(cards)))
         cards.insert(target_position, card)
         for idx, c in enumerate(cards):
@@ -149,8 +182,7 @@ def move_card(db: Session, card_id: int, target_column_id: int, target_position:
         db.refresh(card)
         return card
 
-    # moving between columns
-    # decrement positions in source column after the card
+    # Moving between columns
     source_cards = (
         db.query(models.Card)
         .filter(models.Card.column_id == source_column_id, models.Card.position > source_position)
@@ -160,58 +192,25 @@ def move_card(db: Session, card_id: int, target_column_id: int, target_position:
     for c in source_cards:
         c.position -= 1
 
-    # shift target column cards to make room
     target_cards = (
         db.query(models.Card)
-        .filter(models.Card.column_id == target_column_id, models.Card.position >= target_position)
+        .filter(
+            models.Card.column_id == target_column_id,
+            models.Card.position >= target_position,
+        )
         .order_by(models.Card.position)
         .all()
     )
     for c in target_cards:
         c.position += 1
 
-    # move card
     card.column_id = target_column_id
     card.position = target_position
-
     db.commit()
     db.refresh(card)
     return card
 
 
 def seed_default_data(db: Session) -> None:
-    # Ensure a default user exists
-    user = get_user_by_username(db, "user")
-    if not user:
-        user = create_user(db, "user", "password")
-
-    # Ensure the default board exists
-    board = db.query(models.Board).filter(models.Board.user_id == user.id).first()
-    if not board:
-        board = create_board(db, user.id, "My Project")
-
-    # Ensure default columns exist (5 columns)
-    existing_columns = {c.title: c for c in board.columns}
-    default_columns = [
-        "Backlog",
-        "Discovery",
-        "In Progress",
-        "Review",
-        "Done",
-    ]
-    columns = []
-    for idx, title in enumerate(default_columns):
-        if title not in existing_columns:
-            col = create_column(db, board.id, title, position=idx)
-            columns.append(col)
-        else:
-            columns.append(existing_columns[title])
-
-    # Ensure some initial cards exist in the first column
-    if columns:
-        first_col = columns[0]
-        if not first_col.cards:  # only add if no cards
-            create_card(db, first_col.id, "Align roadmap themes", "Draft quarterly themes with impact statements and metrics.")
-            create_card(db, first_col.id, "Gather customer signals", "Review support tags, sales notes, and churn feedback.")
-
-    db.commit()  # ensure new columns are persisted
+    """No-op: schema is created via create_all; users/boards are created on first OAuth login."""
+    pass

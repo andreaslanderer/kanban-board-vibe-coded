@@ -1,51 +1,285 @@
+import json
 import os
-from typing import Optional
+import secrets
+from urllib.parse import urlencode
 
-from fastapi import Depends, FastAPI, HTTPException, status, Body
-from fastapi.responses import HTMLResponse
+import httpx
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
 from . import crud, models, schemas
 from .ai_schemas import AIChatRequest, AIChatResponse
-from .deps import get_db
-import json
+from .auth import create_access_token
+from .database import SessionLocal, engine
+from .deps import get_current_user, get_db
 
-# In-memory conversation history for MVP (user_id -> list of messages)
-conversation_histories = {}
+# In-memory conversation history (user_id -> list of messages). MVP only — lost on restart.
+conversation_histories: dict = {}
 
-# FastAPI app instance
 app = FastAPI()
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+
+
+@app.on_event("startup")
+def on_startup():
+    # Auto-migrate: if the users table exists with the old schema (username column),
+    # drop all tables so create_all rebuilds them with the new schema.
+    inspector = sa_inspect(engine)
+    if inspector.has_table("users"):
+        old_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "username" in old_cols or "email" not in old_cols:
+            models.Base.metadata.drop_all(bind=engine)
+    models.Base.metadata.create_all(bind=engine)
+    with SessionLocal() as session:
+        crud.seed_default_data(session)
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+@app.get("/api/hello")
+def api_hello():
+    return {"message": "Backend is working"}
+
+
+# ---------------------------------------------------------------------------
+# Auth — Google OAuth 2.0
+# ---------------------------------------------------------------------------
+
+@app.get("/api/auth/google")
+def google_login():
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Google OAuth not configured")
+    base_url = os.getenv("APP_BASE_URL", "http://localhost:8000")
+    state = secrets.token_urlsafe(32)
+    params = {
+        "client_id": client_id,
+        "redirect_uri": f"{base_url}/api/auth/google/callback",
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+    }
+    redirect = RedirectResponse(url=f"{GOOGLE_AUTH_URL}?{urlencode(params)}")
+    redirect.set_cookie("oauth_state", state, max_age=300, httponly=True, samesite="lax")
+    return redirect
+
+
+@app.get("/api/auth/google/callback")
+def google_callback(
+    code: str,
+    state: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    expected_state = request.cookies.get("oauth_state")
+    if not expected_state or state != expected_state:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+    base_url = os.getenv("APP_BASE_URL", "http://localhost:8000")
+
+    token_resp = httpx.post(
+        GOOGLE_TOKEN_URL,
+        data={
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": f"{base_url}/api/auth/google/callback",
+            "grant_type": "authorization_code",
+        },
+    )
+    if token_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail="Failed to exchange OAuth code")
+
+    access_token = token_resp.json().get("access_token")
+    userinfo_resp = httpx.get(
+        GOOGLE_USERINFO_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    if userinfo_resp.status_code != 200:
+        raise HTTPException(status_code=400, detail="Failed to fetch Google user info")
+
+    info = userinfo_resp.json()
+    google_id = info.get("sub")
+    email = info.get("email")
+    if not google_id or not email:
+        raise HTTPException(status_code=400, detail="Incomplete user info from Google")
+
+    user = crud.get_user_by_google_id(db, google_id)
+    if not user:
+        user = crud.create_oauth_user(
+            db,
+            google_id=google_id,
+            email=email,
+            display_name=info.get("name"),
+            avatar_url=info.get("picture"),
+        )
+        crud.create_user_default_board(db, user.id)
+
+    token = create_access_token(user.id)
+    redirect = RedirectResponse(url="/")
+    redirect.set_cookie("access_token", token, httponly=True, samesite="lax", max_age=86400)
+    redirect.delete_cookie("oauth_state")
+    return redirect
+
+
+@app.get("/api/auth/me", response_model=schemas.UserOut)
+def api_auth_me(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout(response: Response):
+    response.delete_cookie("access_token")
+    return {"success": True}
+
+
+@app.post("/api/auth/dev-login", response_model=schemas.UserOut)
+def api_dev_login(
+    payload: schemas.DevLoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Development-only login bypass. Disabled when APP_ENV=production."""
+    if os.getenv("APP_ENV") == "production":
+        raise HTTPException(status_code=404)
+    user = crud.get_user_by_email(db, payload.email)
+    if not user:
+        user = crud.create_oauth_user(
+            db,
+            google_id=f"dev-{payload.email}",
+            email=payload.email,
+            display_name=payload.email.split("@")[0],
+            avatar_url=None,
+        )
+        crud.create_user_default_board(db, user.id)
+    token = create_access_token(user.id)
+    response.set_cookie("access_token", token, httponly=True, samesite="lax", max_age=86400)
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Board & card endpoints (all require authentication)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/boards", response_model=schemas.BoardOut)
+def api_get_board(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    board = crud.get_board_for_user(db, current_user.id)
+    if not board:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
+    return board
+
+
+@app.post(
+    "/api/boards/{board_id}/columns/{column_id}/cards", response_model=schemas.CardOut
+)
+def api_create_card(
+    board_id: int,
+    column_id: int,
+    payload: schemas.CardCreate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    column = crud.get_column(db, column_id)
+    if not column or column.board_id != board_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Column not found")
+    return crud.create_card(db, column_id=column_id, title=payload.title, description=payload.description)
+
+
+@app.patch("/api/cards/{card_id}", response_model=schemas.CardOut)
+def api_update_card(
+    card_id: int,
+    payload: schemas.CardUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    card = crud.update_card(db, card_id=card_id, title=payload.title, description=payload.description)
+    if not card:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+    return card
+
+
+@app.delete("/api/cards/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
+def api_delete_card(
+    card_id: int,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not crud.delete_card(db, card_id=card_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+
+
+@app.patch("/api/columns/{column_id}", response_model=schemas.ColumnOut)
+def api_rename_column(
+    column_id: int,
+    payload: schemas.ColumnUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    column = crud.rename_column(db, column_id=column_id, title=payload.title)
+    if not column:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Column not found")
+    return column
+
+
+@app.put("/api/cards/{card_id}/move", response_model=schemas.CardOut)
+def api_move_card(
+    card_id: int,
+    payload: schemas.CardMove,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    card = crud.move_card(
+        db,
+        card_id=card_id,
+        target_column_id=payload.columnId,
+        target_position=payload.position,
+    )
+    if not card:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Card or column not found"
+        )
+    return card
+
+
+# ---------------------------------------------------------------------------
+# AI endpoints
+# ---------------------------------------------------------------------------
 
 @app.post("/api/ai/chat", response_model=AIChatResponse)
 def api_ai_chat(
     payload: AIChatRequest = Body(...),
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="OpenRouter API key not configured")
+        raise HTTPException(status_code=500, detail="OpenRouter API key not configured")
 
-    # For MVP, always use the single hardcoded user
-    user = crud.get_user_by_username(db, "user")
-    if not user:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User not found")
-    board = crud.get_board_for_user(db, user.id)
+    board = crud.get_board_for_user(db, current_user.id)
     if not board:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
+        raise HTTPException(status_code=404, detail="Board not found")
 
-    # Conversation history (in-memory, per user)
-    history = conversation_histories.setdefault(user.id, [])
-    # Add the new user message
+    history = conversation_histories.setdefault(current_user.id, [])
     history.append({"role": "user", "content": payload.question})
 
-    # Prepare prompt for AI
     board_json = schemas.BoardOut.model_validate(board).model_dump()
-    
-    # Create a column mapping for the AI
     column_mapping = {col["title"]: col["id"] for col in board_json["columns"]}
-    
+
     prompt = f"""
 You are an AI assistant for a Kanban project management app. The user will ask questions or give instructions about their board.
 
@@ -58,11 +292,11 @@ Always respond in this exact JSON format:
   "boardUpdates": {{
     "cards": [
       {{
-        "id": <existing_card_id>,  // For updating/moving/deleting existing cards
-        "title": "<card_title>",   // Optional for updates
-        "description": "<card_description>", // Optional for updates
-        "columnId": <column_id_number>,  // For creating new cards or moving existing ones
-        "delete": true  // Set to true to delete the card with the given id
+        "id": <existing_card_id>,
+        "title": "<card_title>",
+        "description": "<card_description>",
+        "columnId": <column_id_number>,
+        "delete": true
       }}
     ],
     "columns": [
@@ -94,130 +328,43 @@ User message:
 """
 
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-        )
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         response = client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[{"role": "user", "content": prompt}]
+            messages=[{"role": "user", "content": prompt}],
         )
         ai_content = response.choices[0].message.content
-        # Try to parse as JSON
         try:
             parsed = json.loads(ai_content)
-            # Add AI response to history
             history.append({"role": "assistant", "content": parsed.get("response", ai_content)})
             return AIChatResponse(**parsed)
         except Exception:
-            # fallback: return raw text
             history.append({"role": "assistant", "content": ai_content})
             return AIChatResponse(response=ai_content)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI call failed: {str(e)}")
-from .database import SessionLocal, engine
-from .deps import get_db
-
-
-
-@app.on_event("startup")
-def on_startup():
-    # Create database tables and seed default content
-    models.Base.metadata.create_all(bind=engine)
-    with SessionLocal() as session:
-        crud.seed_default_data(session)
-
-
-@app.get("/api/hello")
-def api_hello():
-    return {"message": "Backend is working"}
-
-
-@app.post("/api/auth/login", response_model=schemas.LoginResponse)
-def api_auth_login(payload: schemas.LoginRequest, db: Session = Depends(get_db)):
-    user = crud.get_user_by_username(db, payload.username)
-    if not user or user.password_hash != payload.password:
-        return schemas.LoginResponse(success=False, message="Invalid username or password")
-
-    return schemas.LoginResponse(success=True, user=user)
-
-
-@app.get("/api/boards", response_model=schemas.BoardOut)
-def api_get_board(db: Session = Depends(get_db)):
-    # For MVP we use the single hardcoded user
-    user = crud.get_user_by_username(db, "user")
-    if not user:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User not found")
-
-    board = crud.get_board_for_user(db, user.id)
-    if not board:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Board not found")
-    return board
-
-
-@app.post("/api/boards/{board_id}/columns/{column_id}/cards", response_model=schemas.CardOut)
-def api_create_card(board_id: int, column_id: int, payload: schemas.CardCreate, db: Session = Depends(get_db)):
-    # validate board/column belong together
-    column = crud.get_column(db, column_id)
-    if not column or column.board_id != board_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Column not found")
-
-    card = crud.create_card(db, column_id=column_id, title=payload.title, description=payload.description)
-    return card
-
-
-@app.patch("/api/cards/{card_id}", response_model=schemas.CardOut)
-def api_update_card(card_id: int, payload: schemas.CardUpdate, db: Session = Depends(get_db)):
-    card = crud.update_card(db, card_id=card_id, title=payload.title, description=payload.description)
-    if not card:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
-    return card
-
-
-@app.delete("/api/cards/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
-def api_delete_card(card_id: int, db: Session = Depends(get_db)):
-    deleted = crud.delete_card(db, card_id=card_id)
-    if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
-
-
-@app.patch("/api/columns/{column_id}", response_model=schemas.ColumnOut)
-def api_rename_column(column_id: int, payload: schemas.ColumnUpdate, db: Session = Depends(get_db)):
-    column = crud.rename_column(db, column_id=column_id, title=payload.title)
-    if not column:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Column not found")
-    return column
-
-
-@app.put("/api/cards/{card_id}/move", response_model=schemas.CardOut)
-def api_move_card(card_id: int, payload: schemas.CardMove, db: Session = Depends(get_db)):
-    card = crud.move_card(db, card_id=card_id, target_column_id=payload.columnId, target_position=payload.position)
-    if not card:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card or column not found")
-    return card
+        raise HTTPException(status_code=500, detail=f"AI call failed: {str(e)}")
 
 
 @app.get("/api/ai/test")
 def api_ai_test():
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="OpenRouter API key not configured")
-
+        raise HTTPException(status_code=500, detail="OpenRouter API key not configured")
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-        )
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         response = client.chat.completions.create(
             model="openai/gpt-oss-120b",
-            messages=[{"role": "user", "content": "What is 2+2?"}]
+            messages=[{"role": "user", "content": "What is 2+2?"}],
         )
         return {"response": response.choices[0].message.content}
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI call failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI call failed: {str(e)}")
 
 
-# serve the statically exported frontend at the root (mounted after API routes)
+# ---------------------------------------------------------------------------
+# Static frontend (must be mounted last)
+# ---------------------------------------------------------------------------
+
 static_dir = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../frontend/out")
 )
