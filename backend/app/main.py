@@ -212,9 +212,12 @@ def api_update_card(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    card = crud.update_card(db, card_id=card_id, title=payload.title, description=payload.description)
-    if not card:
+    board = crud.get_board_for_card(db, card_id)
+    if not board:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+    if board.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    card = crud.update_card(db, card_id=card_id, title=payload.title, description=payload.description)
     return card
 
 
@@ -224,8 +227,12 @@ def api_delete_card(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if not crud.delete_card(db, card_id=card_id):
+    board = crud.get_board_for_card(db, card_id)
+    if not board:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found")
+    if board.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    crud.delete_card(db, card_id=card_id)
 
 
 @app.patch("/api/columns/{column_id}", response_model=schemas.ColumnOut)
@@ -235,9 +242,12 @@ def api_rename_column(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    column = crud.rename_column(db, column_id=column_id, title=payload.title)
-    if not column:
+    board = crud.get_board_for_column(db, column_id)
+    if not board:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Column not found")
+    if board.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    column = crud.rename_column(db, column_id=column_id, title=payload.title)
     return column
 
 
@@ -248,16 +258,20 @@ def api_move_card(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    board = crud.get_board_for_card(db, card_id)
+    if not board:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card or column not found")
+    if board.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    target_col = crud.get_column(db, payload.columnId)
+    if not target_col or target_col.board_id != board.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card or column not found")
     card = crud.move_card(
         db,
         card_id=card_id,
         target_column_id=payload.columnId,
         target_position=payload.position,
     )
-    if not card:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Card or column not found"
-        )
     return card
 
 

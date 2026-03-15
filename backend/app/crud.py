@@ -91,6 +91,25 @@ def get_card(db: Session, card_id: int) -> Optional[models.Card]:
     return db.query(models.Card).filter(models.Card.id == card_id).first()
 
 
+def get_board_for_card(db: Session, card_id: int) -> Optional[models.Board]:
+    return (
+        db.query(models.Board)
+        .join(models.KanbanColumn, models.Board.id == models.KanbanColumn.board_id)
+        .join(models.Card, models.KanbanColumn.id == models.Card.column_id)
+        .filter(models.Card.id == card_id)
+        .first()
+    )
+
+
+def get_board_for_column(db: Session, column_id: int) -> Optional[models.Board]:
+    return (
+        db.query(models.Board)
+        .join(models.KanbanColumn, models.Board.id == models.KanbanColumn.board_id)
+        .filter(models.KanbanColumn.id == column_id)
+        .first()
+    )
+
+
 def create_card(
     db: Session, column_id: int, title: str, description: Optional[str] = None
 ) -> models.Card:
